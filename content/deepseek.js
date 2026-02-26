@@ -1,22 +1,24 @@
-// content/claude.js — Runs on https://claude.ai/*
+// content/deepseek.js — Runs on https://chat.deepseek.com/*
 //
 // Both SOURCE and TARGET:
 //
-// TARGET (unchanged logic):
-//   1. Signal CLAUDE_READY → get context block from background
+// TARGET:
+//   1. Signal DEEPSEEK_READY → get context block from background
 //   2. Wait for input field → inject context → auto-submit
-//   3. Wait for response to stabilize → send CLAUDE_RESPONSE
+//   3. Wait for response to stabilize → send DEEPSEEK_RESPONSE
 //
-// SOURCE (new):
+// SOURCE:
 //   - "Ask another AI" button with model dropdown
-//   - Self-summarization: injects SUMMARY_PROMPT into Claude, waits for
-//     Claude's JSON response, parses it, sends CAPTURE to background
+//   - Self-summarization: injects SUMMARY_PROMPT into DeepSeek, waits for
+//     DeepSeek's JSON response, parses it, sends CAPTURE to background
 //   - INJECT_CRITIQUE listener: receives critique from target AI
+//
+// IMPORTANT: Selectors are best-effort. Must be confirmed against live DOM.
 //
 // Globals from utils/summarize-generic.js (loaded before this file):
 //   SUMMARY_PROMPT, parseSummary(), delay()
 
-var DUPERMEM_SOURCE_MODEL = "claude";
+var DUPERMEM_SOURCE_MODEL = "deepseek";
 var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
 var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 
@@ -26,10 +28,10 @@ var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 var DUPERMEM_CHAIN_CONV_ID = null;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TARGET FLOW — runs immediately on load
+// TARGET FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-chrome.runtime.sendMessage({ type: "CLAUDE_READY" }, function (response) {
+chrome.runtime.sendMessage({ type: "DEEPSEEK_READY" }, function (response) {
   if (chrome.runtime.lastError) {
     return;
   }
@@ -40,43 +42,43 @@ chrome.runtime.sendMessage({ type: "CLAUDE_READY" }, function (response) {
     DUPERMEM_CHAIN_CONV_ID = response.conversationId;
   }
   runTargetInjectionFlow(response.contextBlock).catch(function (err) {
-    console.error("[DuperMemory] Claude target injection flow failed:", err.message);
+    console.error("[DuperMemory] DeepSeek target injection flow failed:", err.message);
   });
 });
 
 async function runTargetInjectionFlow(contextBlock) {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForDeepSeekInput();
 
   injectText(inputEl, contextBlock);
-  await delay(300);
+  await delay(400);
 
-  var scopeEl = document.querySelector("main") || document.body;
+  var scopeEl = document.querySelector("main") || document.querySelector("#root") || document.body;
   var snapshot = scopeEl.innerText;
 
-  var submitted = submitClaudeInput(inputEl);
+  var submitted = submitDeepSeekInput(inputEl);
   if (!submitted) {
-    throw new Error("Could not submit to Claude — no send button found.");
+    throw new Error("Could not submit to DeepSeek — no send button found.");
   }
 
-  var claudeResponse = await waitForClaudeResponse(scopeEl, snapshot);
+  var response = await waitForDeepSeekResponse(scopeEl, snapshot);
 
-  if (!claudeResponse) {
-    console.warn("[DuperMemory] Claude response captured was empty. Not sending back.");
+  if (!response) {
+    console.warn("[DuperMemory] DeepSeek response captured was empty. Not sending back.");
     return;
   }
 
   chrome.runtime.sendMessage(
-    { type: "CLAUDE_RESPONSE", content: claudeResponse },
+    { type: "DEEPSEEK_RESPONSE", content: response },
     function () {
       if (chrome.runtime.lastError) {
-        console.error("[DuperMemory] CLAUDE_RESPONSE send failed:", chrome.runtime.lastError.message);
+        console.error("[DuperMemory] DEEPSEEK_RESPONSE send failed:", chrome.runtime.lastError.message);
       }
     }
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SOURCE FLOW — button + dropdown + self-summarization
+// SOURCE FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
 injectButton();
@@ -84,10 +86,10 @@ injectButton();
 // ─── Conversation ID ──────────────────────────────────────────────────────────
 
 function getConversationId() {
-  // Claude URLs: https://claude.ai/chat/abc123-def456
+  // DeepSeek URLs: https://chat.deepseek.com/a/chat/abc123
   var match = window.location.pathname.match(/\/chat\/([a-zA-Z0-9_-]+)/);
-  if (match) return "claude_" + match[1];
-  return "claude_conv_" + Date.now();
+  if (match) return "deepseek_" + match[1];
+  return "deepseek_conv_" + Date.now();
 }
 
 // ─── Button + Dropdown ────────────────────────────────────────────────────────
@@ -232,28 +234,24 @@ function setBusy(btn, busy) {
   btn.style.cursor     = busy ? "wait"    : "pointer";
 }
 
-// ─── Self-summarization (Claude-specific) ─────────────────────────────────────
-//
-// Injects SUMMARY_PROMPT into Claude's own input, waits for Claude's JSON
-// response, parses it. This is a real message visible in the user's chat.
+// ─── Self-summarization (DeepSeek-specific) ───────────────────────────────────
 
 async function summarizeConversation() {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForDeepSeekInput();
 
-  // Snapshot BEFORE injecting the prompt — so we can detect the new response.
-  var scopeEl = document.querySelector("main") || document.body;
+  var scopeEl = document.querySelector("main") || document.querySelector("#root") || document.body;
 
   injectText(inputEl, SUMMARY_PROMPT);
-  await delay(300);
+  await delay(400);
 
   var snapshot = scopeEl.innerText;
 
-  var submitted = submitClaudeInput(inputEl);
+  var submitted = submitDeepSeekInput(inputEl);
   if (!submitted) {
-    throw new Error("[DuperMemory] Could not submit the summarization prompt to Claude.");
+    throw new Error("[DuperMemory] Could not submit the summarization prompt to DeepSeek.");
   }
 
-  var rawText = await waitForClaudeResponse(scopeEl, snapshot);
+  var rawText = await waitForDeepSeekResponse(scopeEl, snapshot);
   return parseSummary(rawText);
 }
 
@@ -268,27 +266,26 @@ chrome.runtime.onMessage.addListener(function (message) {
 });
 
 async function injectCritiqueFlow(content) {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForDeepSeekInput();
   injectText(inputEl, content);
-  await delay(300);
-  submitClaudeInput(inputEl);
+  await delay(400);
+  submitDeepSeekInput(inputEl);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SHARED DOM HELPERS (used by both source and target flows)
+// SHARED DOM HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Wait for input field ─────────────────────────────────────────────────────
 
-function waitForClaudeInput() {
+function waitForDeepSeekInput() {
   return new Promise(function (resolve, reject) {
-    var existing = findClaudeInput();
+    var existing = findDeepSeekInput();
     if (existing) { resolve(existing); return; }
 
     var settled = false;
-
     var observer = new MutationObserver(function () {
-      var el = findClaudeInput();
+      var el = findDeepSeekInput();
       if (!el) return;
       settled = true;
       observer.disconnect();
@@ -301,22 +298,28 @@ function waitForClaudeInput() {
     var timeoutId = setTimeout(function () {
       if (settled) return;
       observer.disconnect();
-      var el = findClaudeInput();
+      var el = findDeepSeekInput();
       if (el) resolve(el);
-      else reject(new Error("Claude input field not found after 15 seconds."));
+      else reject(new Error("DeepSeek input field not found after 15 seconds."));
     }, 15000);
   });
 }
 
-function findClaudeInput() {
+function findDeepSeekInput() {
+  var byId = document.querySelector("#chat-input");
+  if (byId) return byId;
+
   var byRole = document.querySelector('[contenteditable="true"][role="textbox"]');
   if (byRole) return byRole;
 
-  var byAriaLabel = document.querySelector('[contenteditable="true"][aria-label]');
-  if (byAriaLabel) return byAriaLabel;
-
   var textarea = document.querySelector("textarea");
   if (textarea) return textarea;
+
+  var byLabel = document.querySelector(
+    '[contenteditable="true"][aria-label*="message" i],' +
+    '[contenteditable="true"][aria-label*="input" i]'
+  );
+  if (byLabel) return byLabel;
 
   var editors = document.querySelectorAll('[contenteditable="true"]');
   for (var i = 0; i < editors.length; i++) {
@@ -348,24 +351,28 @@ function injectText(el, text) {
   if (!ok) {
     el.textContent = text;
     el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text }));
-    console.warn("[DuperMemory] execCommand('insertText') failed; used textContent fallback.");
+    console.warn("[DuperMemory] DeepSeek: execCommand failed; used textContent fallback.");
   }
 }
 
-// ─── Submit Claude's input ────────────────────────────────────────────────────
+// ─── Submit ───────────────────────────────────────────────────────────────────
 
-function submitClaudeInput(inputEl) {
-  var byAriaLabel = document.querySelector(
-    'button[aria-label*="Send"]:not([disabled]),' +
+function submitDeepSeekInput(inputEl) {
+  var sendBtn = document.querySelector(
+    'button[aria-label*="Send" i]:not([disabled]),' +
     'button[aria-label*="send"]:not([disabled])'
   );
-  if (byAriaLabel) { byAriaLabel.click(); return true; }
+  if (sendBtn) { sendBtn.click(); return true; }
+
+  var byTestId = document.querySelector('[data-testid*="send" i]:not([disabled])');
+  if (byTestId) { byTestId.click(); return true; }
 
   if (inputEl) {
-    var container = inputEl.closest("form") || inputEl.parentElement;
-    if (container) {
-      var btn = container.querySelector("button:not([disabled])");
+    var walk = inputEl.parentElement;
+    for (var i = 0; i < 5 && walk; i++) {
+      var btn = walk.querySelector("button:not([disabled])");
       if (btn) { btn.click(); return true; }
+      walk = walk.parentElement;
     }
   }
 
@@ -381,9 +388,9 @@ function submitClaudeInput(inputEl) {
   return false;
 }
 
-// ─── Wait for Claude's response ───────────────────────────────────────────────
+// ─── Wait for response ────────────────────────────────────────────────────────
 
-function waitForClaudeResponse(scopeEl, snapshot) {
+function waitForDeepSeekResponse(scopeEl, snapshot) {
   var POLL_MS       = 500;
   var STABLE_NEEDED = 4;
   var MIN_NEW_CHARS = 50;
@@ -397,7 +404,7 @@ function waitForClaudeResponse(scopeEl, snapshot) {
 
     function tick() {
       if (elapsed >= TIMEOUT_MS) {
-        reject(new Error("Timed out waiting for Claude's response."));
+        reject(new Error("Timed out waiting for DeepSeek's response."));
         return;
       }
 

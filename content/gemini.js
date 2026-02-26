@@ -1,22 +1,24 @@
-// content/claude.js — Runs on https://claude.ai/*
+// content/gemini.js — Runs on https://gemini.google.com/*
 //
 // Both SOURCE and TARGET:
 //
-// TARGET (unchanged logic):
-//   1. Signal CLAUDE_READY → get context block from background
+// TARGET:
+//   1. Signal GEMINI_READY → get context block from background
 //   2. Wait for input field → inject context → auto-submit
-//   3. Wait for response to stabilize → send CLAUDE_RESPONSE
+//   3. Wait for response to stabilize → send GEMINI_RESPONSE
 //
-// SOURCE (new):
+// SOURCE:
 //   - "Ask another AI" button with model dropdown
-//   - Self-summarization: injects SUMMARY_PROMPT into Claude, waits for
-//     Claude's JSON response, parses it, sends CAPTURE to background
+//   - Self-summarization: injects SUMMARY_PROMPT into Gemini, waits for
+//     Gemini's JSON response, parses it, sends CAPTURE to background
 //   - INJECT_CRITIQUE listener: receives critique from target AI
+//
+// IMPORTANT: Selectors are best-effort. Must be confirmed against live DOM.
 //
 // Globals from utils/summarize-generic.js (loaded before this file):
 //   SUMMARY_PROMPT, parseSummary(), delay()
 
-var DUPERMEM_SOURCE_MODEL = "claude";
+var DUPERMEM_SOURCE_MODEL = "gemini";
 var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
 var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 
@@ -26,10 +28,10 @@ var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 var DUPERMEM_CHAIN_CONV_ID = null;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TARGET FLOW — runs immediately on load
+// TARGET FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-chrome.runtime.sendMessage({ type: "CLAUDE_READY" }, function (response) {
+chrome.runtime.sendMessage({ type: "GEMINI_READY" }, function (response) {
   if (chrome.runtime.lastError) {
     return;
   }
@@ -40,43 +42,43 @@ chrome.runtime.sendMessage({ type: "CLAUDE_READY" }, function (response) {
     DUPERMEM_CHAIN_CONV_ID = response.conversationId;
   }
   runTargetInjectionFlow(response.contextBlock).catch(function (err) {
-    console.error("[DuperMemory] Claude target injection flow failed:", err.message);
+    console.error("[DuperMemory] Gemini target injection flow failed:", err.message);
   });
 });
 
 async function runTargetInjectionFlow(contextBlock) {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForGeminiInput();
 
   injectText(inputEl, contextBlock);
-  await delay(300);
+  await delay(500);
 
   var scopeEl = document.querySelector("main") || document.body;
   var snapshot = scopeEl.innerText;
 
-  var submitted = submitClaudeInput(inputEl);
+  var submitted = submitGeminiInput(inputEl);
   if (!submitted) {
-    throw new Error("Could not submit to Claude — no send button found.");
+    throw new Error("Could not submit to Gemini — no send button found.");
   }
 
-  var claudeResponse = await waitForClaudeResponse(scopeEl, snapshot);
+  var response = await waitForGeminiResponse(scopeEl, snapshot);
 
-  if (!claudeResponse) {
-    console.warn("[DuperMemory] Claude response captured was empty. Not sending back.");
+  if (!response) {
+    console.warn("[DuperMemory] Gemini response captured was empty. Not sending back.");
     return;
   }
 
   chrome.runtime.sendMessage(
-    { type: "CLAUDE_RESPONSE", content: claudeResponse },
+    { type: "GEMINI_RESPONSE", content: response },
     function () {
       if (chrome.runtime.lastError) {
-        console.error("[DuperMemory] CLAUDE_RESPONSE send failed:", chrome.runtime.lastError.message);
+        console.error("[DuperMemory] GEMINI_RESPONSE send failed:", chrome.runtime.lastError.message);
       }
     }
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SOURCE FLOW — button + dropdown + self-summarization
+// SOURCE FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
 injectButton();
@@ -84,10 +86,11 @@ injectButton();
 // ─── Conversation ID ──────────────────────────────────────────────────────────
 
 function getConversationId() {
-  // Claude URLs: https://claude.ai/chat/abc123-def456
-  var match = window.location.pathname.match(/\/chat\/([a-zA-Z0-9_-]+)/);
-  if (match) return "claude_" + match[1];
-  return "claude_conv_" + Date.now();
+  // Gemini URLs vary; extract path segment if available.
+  var path = window.location.pathname;
+  var match = path.match(/\/app\/([a-zA-Z0-9_-]+)/);
+  if (match) return "gemini_" + match[1];
+  return "gemini_conv_" + Date.now();
 }
 
 // ─── Button + Dropdown ────────────────────────────────────────────────────────
@@ -232,28 +235,24 @@ function setBusy(btn, busy) {
   btn.style.cursor     = busy ? "wait"    : "pointer";
 }
 
-// ─── Self-summarization (Claude-specific) ─────────────────────────────────────
-//
-// Injects SUMMARY_PROMPT into Claude's own input, waits for Claude's JSON
-// response, parses it. This is a real message visible in the user's chat.
+// ─── Self-summarization (Gemini-specific) ─────────────────────────────────────
 
 async function summarizeConversation() {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForGeminiInput();
 
-  // Snapshot BEFORE injecting the prompt — so we can detect the new response.
   var scopeEl = document.querySelector("main") || document.body;
 
   injectText(inputEl, SUMMARY_PROMPT);
-  await delay(300);
+  await delay(500);
 
   var snapshot = scopeEl.innerText;
 
-  var submitted = submitClaudeInput(inputEl);
+  var submitted = submitGeminiInput(inputEl);
   if (!submitted) {
-    throw new Error("[DuperMemory] Could not submit the summarization prompt to Claude.");
+    throw new Error("[DuperMemory] Could not submit the summarization prompt to Gemini.");
   }
 
-  var rawText = await waitForClaudeResponse(scopeEl, snapshot);
+  var rawText = await waitForGeminiResponse(scopeEl, snapshot);
   return parseSummary(rawText);
 }
 
@@ -268,27 +267,26 @@ chrome.runtime.onMessage.addListener(function (message) {
 });
 
 async function injectCritiqueFlow(content) {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForGeminiInput();
   injectText(inputEl, content);
-  await delay(300);
-  submitClaudeInput(inputEl);
+  await delay(500);
+  submitGeminiInput(inputEl);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SHARED DOM HELPERS (used by both source and target flows)
+// SHARED DOM HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Wait for input field ─────────────────────────────────────────────────────
 
-function waitForClaudeInput() {
+function waitForGeminiInput() {
   return new Promise(function (resolve, reject) {
-    var existing = findClaudeInput();
+    var existing = findGeminiInput();
     if (existing) { resolve(existing); return; }
 
     var settled = false;
-
     var observer = new MutationObserver(function () {
-      var el = findClaudeInput();
+      var el = findGeminiInput();
       if (!el) return;
       settled = true;
       observer.disconnect();
@@ -301,19 +299,25 @@ function waitForClaudeInput() {
     var timeoutId = setTimeout(function () {
       if (settled) return;
       observer.disconnect();
-      var el = findClaudeInput();
+      var el = findGeminiInput();
       if (el) resolve(el);
-      else reject(new Error("Claude input field not found after 15 seconds."));
+      else reject(new Error("Gemini input field not found after 15 seconds."));
     }, 15000);
   });
 }
 
-function findClaudeInput() {
+function findGeminiInput() {
   var byRole = document.querySelector('[contenteditable="true"][role="textbox"]');
   if (byRole) return byRole;
 
-  var byAriaLabel = document.querySelector('[contenteditable="true"][aria-label]');
-  if (byAriaLabel) return byAriaLabel;
+  var richTextarea = document.querySelector("rich-textarea [contenteditable='true']");
+  if (richTextarea) return richTextarea;
+
+  var byLabel = document.querySelector(
+    '[contenteditable="true"][aria-label*="prompt" i],' +
+    '[contenteditable="true"][aria-label*="message" i]'
+  );
+  if (byLabel) return byLabel;
 
   var textarea = document.querySelector("textarea");
   if (textarea) return textarea;
@@ -348,24 +352,27 @@ function injectText(el, text) {
   if (!ok) {
     el.textContent = text;
     el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text }));
-    console.warn("[DuperMemory] execCommand('insertText') failed; used textContent fallback.");
+    console.warn("[DuperMemory] Gemini: execCommand failed; used textContent fallback.");
   }
 }
 
-// ─── Submit Claude's input ────────────────────────────────────────────────────
+// ─── Submit ───────────────────────────────────────────────────────────────────
 
-function submitClaudeInput(inputEl) {
-  var byAriaLabel = document.querySelector(
-    'button[aria-label*="Send"]:not([disabled]),' +
-    'button[aria-label*="send"]:not([disabled])'
+function submitGeminiInput(inputEl) {
+  var sendBtn = document.querySelector(
+    'button[aria-label*="Send" i]:not([disabled]),' +
+    'button[aria-label*="Submit" i]:not([disabled])'
   );
-  if (byAriaLabel) { byAriaLabel.click(); return true; }
+  if (sendBtn) { sendBtn.click(); return true; }
 
   if (inputEl) {
-    var container = inputEl.closest("form") || inputEl.parentElement;
-    if (container) {
-      var btn = container.querySelector("button:not([disabled])");
-      if (btn) { btn.click(); return true; }
+    var walk = inputEl.parentElement;
+    for (var i = 0; i < 5 && walk; i++) {
+      var btn = walk.querySelector('button[aria-label*="Send" i], button[aria-label*="Submit" i]');
+      if (btn && !btn.disabled) { btn.click(); return true; }
+      var anyBtn = walk.querySelector("button:not([disabled])");
+      if (anyBtn) { anyBtn.click(); return true; }
+      walk = walk.parentElement;
     }
   }
 
@@ -381,9 +388,9 @@ function submitClaudeInput(inputEl) {
   return false;
 }
 
-// ─── Wait for Claude's response ───────────────────────────────────────────────
+// ─── Wait for response ────────────────────────────────────────────────────────
 
-function waitForClaudeResponse(scopeEl, snapshot) {
+function waitForGeminiResponse(scopeEl, snapshot) {
   var POLL_MS       = 500;
   var STABLE_NEEDED = 4;
   var MIN_NEW_CHARS = 50;
@@ -397,7 +404,7 @@ function waitForClaudeResponse(scopeEl, snapshot) {
 
     function tick() {
       if (elapsed >= TIMEOUT_MS) {
-        reject(new Error("Timed out waiting for Claude's response."));
+        reject(new Error("Timed out waiting for Gemini's response."));
         return;
       }
 

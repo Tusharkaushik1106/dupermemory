@@ -1,22 +1,24 @@
-// content/claude.js — Runs on https://claude.ai/*
+// content/perplexity.js — Runs on https://www.perplexity.ai/*
 //
 // Both SOURCE and TARGET:
 //
-// TARGET (unchanged logic):
-//   1. Signal CLAUDE_READY → get context block from background
+// TARGET:
+//   1. Signal PERPLEXITY_READY → get context block from background
 //   2. Wait for input field → inject context → auto-submit
-//   3. Wait for response to stabilize → send CLAUDE_RESPONSE
+//   3. Wait for response to stabilize → send PERPLEXITY_RESPONSE
 //
-// SOURCE (new):
+// SOURCE:
 //   - "Ask another AI" button with model dropdown
-//   - Self-summarization: injects SUMMARY_PROMPT into Claude, waits for
-//     Claude's JSON response, parses it, sends CAPTURE to background
+//   - Self-summarization: injects SUMMARY_PROMPT into Perplexity, waits for
+//     Perplexity's JSON response, parses it, sends CAPTURE to background
 //   - INJECT_CRITIQUE listener: receives critique from target AI
+//
+// IMPORTANT: Selectors are best-effort. Must be confirmed against live DOM.
 //
 // Globals from utils/summarize-generic.js (loaded before this file):
 //   SUMMARY_PROMPT, parseSummary(), delay()
 
-var DUPERMEM_SOURCE_MODEL = "claude";
+var DUPERMEM_SOURCE_MODEL = "perplexity";
 var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
 var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 
@@ -26,10 +28,10 @@ var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 var DUPERMEM_CHAIN_CONV_ID = null;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TARGET FLOW — runs immediately on load
+// TARGET FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-chrome.runtime.sendMessage({ type: "CLAUDE_READY" }, function (response) {
+chrome.runtime.sendMessage({ type: "PERPLEXITY_READY" }, function (response) {
   if (chrome.runtime.lastError) {
     return;
   }
@@ -40,43 +42,43 @@ chrome.runtime.sendMessage({ type: "CLAUDE_READY" }, function (response) {
     DUPERMEM_CHAIN_CONV_ID = response.conversationId;
   }
   runTargetInjectionFlow(response.contextBlock).catch(function (err) {
-    console.error("[DuperMemory] Claude target injection flow failed:", err.message);
+    console.error("[DuperMemory] Perplexity target injection flow failed:", err.message);
   });
 });
 
 async function runTargetInjectionFlow(contextBlock) {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForPerplexityInput();
 
   injectText(inputEl, contextBlock);
-  await delay(300);
+  await delay(400);
 
   var scopeEl = document.querySelector("main") || document.body;
   var snapshot = scopeEl.innerText;
 
-  var submitted = submitClaudeInput(inputEl);
+  var submitted = submitPerplexityInput(inputEl);
   if (!submitted) {
-    throw new Error("Could not submit to Claude — no send button found.");
+    throw new Error("Could not submit to Perplexity — no send button found.");
   }
 
-  var claudeResponse = await waitForClaudeResponse(scopeEl, snapshot);
+  var response = await waitForPerplexityResponse(scopeEl, snapshot);
 
-  if (!claudeResponse) {
-    console.warn("[DuperMemory] Claude response captured was empty. Not sending back.");
+  if (!response) {
+    console.warn("[DuperMemory] Perplexity response captured was empty. Not sending back.");
     return;
   }
 
   chrome.runtime.sendMessage(
-    { type: "CLAUDE_RESPONSE", content: claudeResponse },
+    { type: "PERPLEXITY_RESPONSE", content: response },
     function () {
       if (chrome.runtime.lastError) {
-        console.error("[DuperMemory] CLAUDE_RESPONSE send failed:", chrome.runtime.lastError.message);
+        console.error("[DuperMemory] PERPLEXITY_RESPONSE send failed:", chrome.runtime.lastError.message);
       }
     }
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SOURCE FLOW — button + dropdown + self-summarization
+// SOURCE FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
 injectButton();
@@ -84,10 +86,10 @@ injectButton();
 // ─── Conversation ID ──────────────────────────────────────────────────────────
 
 function getConversationId() {
-  // Claude URLs: https://claude.ai/chat/abc123-def456
-  var match = window.location.pathname.match(/\/chat\/([a-zA-Z0-9_-]+)/);
-  if (match) return "claude_" + match[1];
-  return "claude_conv_" + Date.now();
+  // Perplexity URLs: https://www.perplexity.ai/search/abc123
+  var match = window.location.pathname.match(/\/search\/([a-zA-Z0-9_-]+)/);
+  if (match) return "perplexity_" + match[1];
+  return "perplexity_conv_" + Date.now();
 }
 
 // ─── Button + Dropdown ────────────────────────────────────────────────────────
@@ -232,28 +234,24 @@ function setBusy(btn, busy) {
   btn.style.cursor     = busy ? "wait"    : "pointer";
 }
 
-// ─── Self-summarization (Claude-specific) ─────────────────────────────────────
-//
-// Injects SUMMARY_PROMPT into Claude's own input, waits for Claude's JSON
-// response, parses it. This is a real message visible in the user's chat.
+// ─── Self-summarization (Perplexity-specific) ─────────────────────────────────
 
 async function summarizeConversation() {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForPerplexityInput();
 
-  // Snapshot BEFORE injecting the prompt — so we can detect the new response.
   var scopeEl = document.querySelector("main") || document.body;
 
   injectText(inputEl, SUMMARY_PROMPT);
-  await delay(300);
+  await delay(400);
 
   var snapshot = scopeEl.innerText;
 
-  var submitted = submitClaudeInput(inputEl);
+  var submitted = submitPerplexityInput(inputEl);
   if (!submitted) {
-    throw new Error("[DuperMemory] Could not submit the summarization prompt to Claude.");
+    throw new Error("[DuperMemory] Could not submit the summarization prompt to Perplexity.");
   }
 
-  var rawText = await waitForClaudeResponse(scopeEl, snapshot);
+  var rawText = await waitForPerplexityResponse(scopeEl, snapshot);
   return parseSummary(rawText);
 }
 
@@ -268,27 +266,26 @@ chrome.runtime.onMessage.addListener(function (message) {
 });
 
 async function injectCritiqueFlow(content) {
-  var inputEl = await waitForClaudeInput();
+  var inputEl = await waitForPerplexityInput();
   injectText(inputEl, content);
-  await delay(300);
-  submitClaudeInput(inputEl);
+  await delay(400);
+  submitPerplexityInput(inputEl);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SHARED DOM HELPERS (used by both source and target flows)
+// SHARED DOM HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Wait for input field ─────────────────────────────────────────────────────
 
-function waitForClaudeInput() {
+function waitForPerplexityInput() {
   return new Promise(function (resolve, reject) {
-    var existing = findClaudeInput();
+    var existing = findPerplexityInput();
     if (existing) { resolve(existing); return; }
 
     var settled = false;
-
     var observer = new MutationObserver(function () {
-      var el = findClaudeInput();
+      var el = findPerplexityInput();
       if (!el) return;
       settled = true;
       observer.disconnect();
@@ -301,22 +298,26 @@ function waitForClaudeInput() {
     var timeoutId = setTimeout(function () {
       if (settled) return;
       observer.disconnect();
-      var el = findClaudeInput();
+      var el = findPerplexityInput();
       if (el) resolve(el);
-      else reject(new Error("Claude input field not found after 15 seconds."));
+      else reject(new Error("Perplexity input field not found after 15 seconds."));
     }, 15000);
   });
 }
 
-function findClaudeInput() {
+function findPerplexityInput() {
+  var textarea = document.querySelector("textarea");
+  if (textarea) return textarea;
+
   var byRole = document.querySelector('[contenteditable="true"][role="textbox"]');
   if (byRole) return byRole;
 
-  var byAriaLabel = document.querySelector('[contenteditable="true"][aria-label]');
-  if (byAriaLabel) return byAriaLabel;
-
-  var textarea = document.querySelector("textarea");
-  if (textarea) return textarea;
+  var byLabel = document.querySelector(
+    '[contenteditable="true"][aria-label*="ask" i],' +
+    '[contenteditable="true"][aria-label*="search" i],' +
+    '[contenteditable="true"][aria-label*="query" i]'
+  );
+  if (byLabel) return byLabel;
 
   var editors = document.querySelectorAll('[contenteditable="true"]');
   for (var i = 0; i < editors.length; i++) {
@@ -348,24 +349,26 @@ function injectText(el, text) {
   if (!ok) {
     el.textContent = text;
     el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text }));
-    console.warn("[DuperMemory] execCommand('insertText') failed; used textContent fallback.");
+    console.warn("[DuperMemory] Perplexity: execCommand failed; used textContent fallback.");
   }
 }
 
-// ─── Submit Claude's input ────────────────────────────────────────────────────
+// ─── Submit ───────────────────────────────────────────────────────────────────
 
-function submitClaudeInput(inputEl) {
-  var byAriaLabel = document.querySelector(
-    'button[aria-label*="Send"]:not([disabled]),' +
-    'button[aria-label*="send"]:not([disabled])'
+function submitPerplexityInput(inputEl) {
+  var sendBtn = document.querySelector(
+    'button[aria-label*="Submit" i]:not([disabled]),' +
+    'button[aria-label*="Send" i]:not([disabled]),' +
+    'button[aria-label*="Search" i]:not([disabled])'
   );
-  if (byAriaLabel) { byAriaLabel.click(); return true; }
+  if (sendBtn) { sendBtn.click(); return true; }
 
   if (inputEl) {
-    var container = inputEl.closest("form") || inputEl.parentElement;
-    if (container) {
-      var btn = container.querySelector("button:not([disabled])");
+    var walk = inputEl.parentElement;
+    for (var i = 0; i < 5 && walk; i++) {
+      var btn = walk.querySelector("button:not([disabled])");
       if (btn) { btn.click(); return true; }
+      walk = walk.parentElement;
     }
   }
 
@@ -381,9 +384,9 @@ function submitClaudeInput(inputEl) {
   return false;
 }
 
-// ─── Wait for Claude's response ───────────────────────────────────────────────
+// ─── Wait for response ────────────────────────────────────────────────────────
 
-function waitForClaudeResponse(scopeEl, snapshot) {
+function waitForPerplexityResponse(scopeEl, snapshot) {
   var POLL_MS       = 500;
   var STABLE_NEEDED = 4;
   var MIN_NEW_CHARS = 50;
@@ -397,7 +400,7 @@ function waitForClaudeResponse(scopeEl, snapshot) {
 
     function tick() {
       if (elapsed >= TIMEOUT_MS) {
-        reject(new Error("Timed out waiting for Claude's response."));
+        reject(new Error("Timed out waiting for Perplexity's response."));
         return;
       }
 

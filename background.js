@@ -1,67 +1,98 @@
 // background.js — Service Worker
 //
-// Message protocol:
-//   chatgpt.js → background:   { type: "CAPTURE",        summary: {...} }
-//   claude.js  → background:   { type: "CLAUDE_READY" }
-//   background → claude.js:    { type: "INJECT",         contextBlock: "..." }  ← sendResponse
-//   claude.js  → background:   { type: "CLAUDE_RESPONSE", content: "..." }
-//   background → chatgpt.js:   { type: "INJECT_CRITIQUE", content: "..." }      ← tabs.sendMessage
+// Message protocol (any-source, any-target):
+//
+//   {source}.js → background:     { type: "CAPTURE", summary: {...}, targetModel: "claude"|..., sourceModel: "chatgpt"|..., conversationId: "..." }
+//   {source}.js → background:     { type: "GET_MODELS", sourceModel: "chatgpt"|... }  → sendResponse with filtered model list
+//   {target}.js → background:     { type: "{MODEL}_READY" }    (e.g. CLAUDE_READY, CHATGPT_READY, ...)
+//   background → {target}.js:     { type: "INJECT", contextBlock: "..." }   ← sendResponse
+//   {target}.js → background:     { type: "{MODEL}_RESPONSE",  content: "..." }
+//   background → {source}.js:     { type: "INJECT_CRITIQUE",   content: "..." }        ← tabs.sendMessage
 //
 // State lifecycle:
 //
-//   pendingContext[claudeTabId] = { contextBlock, sourceTabId }
-//     Set:     when handleCapture opens the Claude tab
-//     Cleared: when CLAUDE_READY is received (context delivered)
+//   pendingContext[targetTabId] = { contextBlock, sourceTabId, conversationId }
+//     Set:     when handleCapture opens the target AI tab
+//     Cleared: when {MODEL}_READY is received (context delivered)
 //
-//   pendingReview[claudeTabId] = sourceTabId
-//     Set:     when CLAUDE_READY is received (so we remember where to send the critique)
-//     Cleared: when CLAUDE_RESPONSE is received (critique sent back to ChatGPT)
+//   pendingReview[targetTabId] = { sourceTabId, conversationId }
+//     Set:     when {MODEL}_READY is received
+//     Cleared: when {MODEL}_RESPONSE is received (critique sent back)
 
+importScripts("utils/models.js");
 importScripts("utils/format.js");
+importScripts("utils/memory.js");
+importScripts("utils/summarize-generic.js");
 
-const pendingContext = {}; // claudeTabId → { contextBlock, sourceTabId }
-const pendingReview  = {}; // claudeTabId → sourceTabId
+var pendingContext = {}; // targetTabId → { contextBlock, sourceTabId, conversationId }
+var pendingReview  = {}; // targetTabId → { sourceTabId, conversationId }
 
 // ─── Message handler ──────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const senderTabId = sender.tab && sender.tab.id;
+chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+  var senderTabId = sender.tab && sender.tab.id;
 
-  if (message.type === "CAPTURE") {
-    handleCapture(message.summary, senderTabId);
+  // ── GET_MODELS — any content script requests the model list for its dropdown ──
+  if (message.type === "GET_MODELS") {
+    sendResponse({ models: getModelList(message.sourceModel || null) });
     return false;
   }
 
-  if (message.type === "CLAUDE_READY") {
+  // ── CAPTURE — any source content script sends a summary with a target model ──
+  if (message.type === "CAPTURE") {
+    handleCapture(message.summary, message.targetModel, message.conversationId, senderTabId);
+    return false;
+  }
+
+  // ── {MODEL}_READY — target content script signals it's loaded ───────────
+  var readyModel = getModelByMessageType(message.type);
+  if (readyModel && message.type === readyModel.readyType) {
     if (senderTabId && pendingContext[senderTabId]) {
-      const { contextBlock, sourceTabId } = pendingContext[senderTabId];
+      var pending = pendingContext[senderTabId];
       delete pendingContext[senderTabId];
 
-      // Remember which ChatGPT tab originated this so we can relay the review back.
-      pendingReview[senderTabId] = sourceTabId;
+      pendingReview[senderTabId] = {
+        sourceTabId:    pending.sourceTabId,
+        conversationId: pending.conversationId,
+      };
 
-      sendResponse({ type: "INJECT", contextBlock });
+      sendResponse({ type: "INJECT", contextBlock: pending.contextBlock, conversationId: pending.conversationId });
     } else {
-      sendResponse(null); // regular claude.ai visit, no pending context
+      sendResponse(null); // Regular visit, no pending context.
     }
-    // sendResponse is synchronous — no need to return true.
     return false;
   }
 
-  if (message.type === "CLAUDE_RESPONSE") {
+  // ── {MODEL}_RESPONSE — target content script sends its response ─────────
+  var respModel = getModelByMessageType(message.type);
+  if (respModel && message.type === respModel.responseType) {
     if (senderTabId && pendingReview[senderTabId]) {
-      const sourceTabId = pendingReview[senderTabId];
+      var review = pendingReview[senderTabId];
       delete pendingReview[senderTabId];
 
-      sendCritiqueToTab(sourceTabId, message.content);
+      // Parse the target's response: split conversational reply from memory update.
+      var parsed = parseTargetResponse(message.content);
+
+      // If the target AI included a memory update, merge it into central memory.
+      if (parsed.memoryUpdate && review.conversationId) {
+        readMemory(review.conversationId).then(function (memory) {
+          var merged = mergeMemory(memory, parsed.memoryUpdate);
+          return writeMemory(merged);
+        }).catch(function (err) {
+          console.warn("[DuperMemory] Failed to merge target memory update:", err);
+        });
+      }
+
+      // Send only the conversational reply back to the source tab.
+      sendCritiqueToTab(review.sourceTabId, parsed.reply, respModel.name);
     }
     return false;
   }
 });
 
-// ─── Capture + open Claude ────────────────────────────────────────────────────
+// ─── Capture + merge memory + open target ─────────────────────────────────────
 
-function handleCapture(summary, sourceTabId) {
+function handleCapture(summary, targetModelKey, conversationId, sourceTabId) {
   if (!summary || typeof summary !== "object") {
     console.error("[DuperMemory] handleCapture: invalid summary", summary);
     return;
@@ -71,29 +102,69 @@ function handleCapture(summary, sourceTabId) {
     return;
   }
 
-  const contextBlock = formatContextBlock(summary);
+  // Resolve the target model from the registry.
+  var model = MODEL_REGISTRY[targetModelKey];
+  if (!model) {
+    console.error("[DuperMemory] handleCapture: unknown target model", targetModelKey);
+    return;
+  }
 
-  chrome.tabs.create({ url: "https://claude.ai" }, (tab) => {
-    if (chrome.runtime.lastError) {
-      console.error("[DuperMemory] Failed to open Claude tab:", chrome.runtime.lastError.message);
-      return;
-    }
-    pendingContext[tab.id] = { contextBlock, sourceTabId };
+  // Use a stable conversation ID. If the source didn't provide one, generate one.
+  var convId = conversationId || ("conv_" + Date.now());
+
+  // Read existing memory → merge summary → write back → format context → open tab.
+  readMemory(convId).then(function (memory) {
+    var merged = mergeMemory(memory, summary);
+
+    return writeMemory(merged).then(function () {
+      return merged;
+    });
+  }).then(function (merged) {
+    var contextBlock = formatContextBlock(merged);
+
+    chrome.tabs.create({ url: model.url }, function (tab) {
+      if (chrome.runtime.lastError) {
+        console.error("[DuperMemory] Failed to open " + model.name + " tab:", chrome.runtime.lastError.message);
+        return;
+      }
+      pendingContext[tab.id] = {
+        contextBlock:   contextBlock,
+        sourceTabId:    sourceTabId,
+        conversationId: convId,
+      };
+    });
+  }).catch(function (err) {
+    console.error("[DuperMemory] handleCapture memory flow failed:", err);
+
+    // Fallback: format directly from summary without memory persistence.
+    var fallbackMemory = summaryToMemoryShape(summary);
+    var contextBlock = formatContextBlock(fallbackMemory);
+
+    chrome.tabs.create({ url: model.url }, function (tab) {
+      if (chrome.runtime.lastError) {
+        console.error("[DuperMemory] Failed to open " + model.name + " tab:", chrome.runtime.lastError.message);
+        return;
+      }
+      pendingContext[tab.id] = {
+        contextBlock:   contextBlock,
+        sourceTabId:    sourceTabId,
+        conversationId: convId,
+      };
+    });
   });
 }
 
-// ─── Relay Claude's response back to ChatGPT ──────────────────────────────────
+// ─── Relay target's response back to the source tab ───────────────────────────
 
-function sendCritiqueToTab(tabId, claudeResponse) {
-  const content =
-    "Another AI reviewed your answer. Revise your response considering this critique:\n\n" +
-    claudeResponse;
+function sendCritiqueToTab(tabId, response, modelName) {
+  var content =
+    modelName + " reviewed your answer. Revise your response considering this critique:\n\n" +
+    response;
 
-  chrome.tabs.sendMessage(tabId, { type: "INJECT_CRITIQUE", content }, () => {
+  chrome.tabs.sendMessage(tabId, { type: "INJECT_CRITIQUE", content: content }, function () {
     if (chrome.runtime.lastError) {
-      // Tab was closed or navigated away between the click and Claude's response.
       console.warn(
-        "[DuperMemory] Could not deliver critique to ChatGPT tab " + tabId + ": ",
+        "[DuperMemory] Could not deliver critique to source tab " + tabId + ": ",
         chrome.runtime.lastError.message
       );
     }

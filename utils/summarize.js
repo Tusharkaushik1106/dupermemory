@@ -16,6 +16,9 @@
 // ("no other text") twice because models tend to add preambles otherwise.
 // The field descriptions are inline so ChatGPT knows what each field means
 // without us having to include the full conversation in the prompt text.
+//
+// Extended from the original to also request entities, open_questions,
+// and constraints. These feed into the central memory layer (utils/memory.js).
 const SUMMARY_PROMPT =
   "Summarize our conversation for a browser extension. " +
   "Reply with ONLY valid JSON — no markdown fences, no explanation, nothing else. " +
@@ -25,7 +28,12 @@ const SUMMARY_PROMPT =
   '  "user_goal": "what the user is ultimately trying to accomplish",\n' +
   '  "important_facts": ["key fact or constraint mentioned", "..."],\n' +
   '  "decisions_made": ["conclusion or choice that was reached", "..."],\n' +
-  '  "current_task": "the specific thing being worked on most recently"\n' +
+  '  "current_task": "the specific thing being worked on most recently",\n' +
+  '  "entities": [\n' +
+  '    { "name": "entity name", "type": "technology | concept | tool | requirement | constraint | other", "summary": "one sentence about this entity in context" }\n' +
+  "  ],\n" +
+  '  "open_questions": ["unresolved question from the conversation", "..."],\n' +
+  '  "constraints": ["hard constraint the user stated", "..."]\n' +
   "}\n" +
   "No other text.";
 
@@ -264,6 +272,9 @@ function parseSummary(rawText) {
       important_facts: Array.isArray(obj.important_facts) ? obj.important_facts.map(String) : [],
       decisions_made:  Array.isArray(obj.decisions_made)  ? obj.decisions_made.map(String)  : [],
       current_task:    String(obj.current_task     || ""),
+      entities:        Array.isArray(obj.entities) ? obj.entities.filter(function (e) { return e && e.name; }) : [],
+      open_questions:  Array.isArray(obj.open_questions) ? obj.open_questions.map(String) : [],
+      constraints:     Array.isArray(obj.constraints) ? obj.constraints.map(String) : [],
     };
   } catch {
     // JSON parsing failed. Degrade gracefully: keep the raw text so the user
@@ -276,6 +287,9 @@ function parseSummary(rawText) {
       important_facts: [],
       decisions_made:  [],
       current_task:    rawText,
+      entities:        [],
+      open_questions:  [],
+      constraints:     [],
     };
   }
 }
