@@ -4,8 +4,8 @@
 //
 // SOURCE:
 //   - "Ask another AI" button with model dropdown
-//   - Self-summarization: injects SUMMARY_PROMPT into ChatGPT, waits for
-//     ChatGPT's JSON response, parses it, sends CAPTURE to background
+//   - Direct DOM capture: reads conversation messages from the DOM,
+//     sends transcript to background via CAPTURE message
 //   - INJECT_CRITIQUE listener: receives critique from target AI, injects
 //     it into ChatGPT's input and auto-submits
 //
@@ -15,7 +15,7 @@
 //   - Waits for response to stabilize → sends CHATGPT_RESPONSE to background
 //
 // Globals from utils/summarize-generic.js (loaded before this file):
-//   SUMMARY_PROMPT, parseSummary(), delay()
+//   parseSummary(), delay()
 
 var DUPERMEM_SOURCE_MODEL = "chatgpt";
 var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
@@ -156,48 +156,69 @@ function getConversationId() {
 function injectButton() {
   if (document.getElementById(DUPERMEM_BUTTON_ID)) return;
 
+  var styleTag = document.createElement("style");
+  styleTag.textContent =
+    "@keyframes dupermem-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}";
+  document.head.appendChild(styleTag);
+
   var container = document.createElement("div");
   container.id = DUPERMEM_BUTTON_ID + "-container";
   Object.assign(container.style, {
-    position: "fixed",
-    top:      "12px",
-    right:    "12px",
-    zIndex:   "2147483647",
-    display:  "flex",
+    position:      "fixed",
+    top:           "14px",
+    right:         "14px",
+    zIndex:        "2147483647",
+    display:       "flex",
     flexDirection: "column",
     alignItems:    "flex-end",
-    fontFamily:    "inherit",
+    fontFamily:    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   });
 
   var btn = document.createElement("button");
   btn.id = DUPERMEM_BUTTON_ID;
-  btn.textContent = "Ask another AI";
+  btn.innerHTML = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>Ask another AI';
   Object.assign(btn.style, {
-    padding:      "7px 14px",
-    background:   "#7c3aed",
-    color:        "#fff",
-    border:       "none",
-    borderRadius: "8px",
-    fontSize:     "13px",
-    fontWeight:   "600",
-    cursor:       "pointer",
-    boxShadow:    "0 2px 8px rgba(0,0,0,0.3)",
-    lineHeight:   "1.4",
+    padding:              "6px 12px",
+    background:           "rgba(15, 15, 20, 0.82)",
+    color:                "#d4d4d8",
+    border:               "1px solid rgba(255,255,255,0.08)",
+    borderRadius:         "8px",
+    fontSize:             "12.5px",
+    fontWeight:           "500",
+    cursor:               "pointer",
+    boxShadow:            "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)",
+    lineHeight:           "1",
+    letterSpacing:        "0.01em",
+    transition:           "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+    backdropFilter:       "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
   });
-  btn.addEventListener("mouseenter", function () { btn.style.background = "#6d28d9"; });
-  btn.addEventListener("mouseleave", function () { btn.style.background = "#7c3aed"; });
+  btn.addEventListener("mouseenter", function () {
+    btn.style.background  = "rgba(28, 28, 38, 0.92)";
+    btn.style.borderColor = "rgba(255,255,255,0.14)";
+    btn.style.boxShadow   = "0 2px 8px rgba(0,0,0,0.3), 0 6px 16px rgba(0,0,0,0.15)";
+  });
+  btn.addEventListener("mouseleave", function () {
+    btn.style.background  = "rgba(15, 15, 20, 0.82)";
+    btn.style.borderColor = "rgba(255,255,255,0.08)";
+    btn.style.boxShadow   = "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)";
+  });
   btn.addEventListener("click", toggleDropdown);
 
   var dropdown = document.createElement("div");
   dropdown.id = DUPERMEM_DROPDOWN_ID;
   Object.assign(dropdown.style, {
-    display:      "none",
-    marginTop:    "4px",
-    background:   "#1e1e2e",
-    borderRadius: "8px",
-    boxShadow:    "0 4px 16px rgba(0,0,0,0.4)",
-    overflow:     "hidden",
-    minWidth:     "150px",
+    display:              "none",
+    marginTop:            "6px",
+    background:           "rgba(18, 18, 24, 0.92)",
+    border:               "1px solid rgba(255,255,255,0.07)",
+    borderRadius:         "10px",
+    boxShadow:            "0 8px 30px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.08)",
+    overflow:             "hidden",
+    minWidth:             "160px",
+    backdropFilter:       "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    padding:              "4px 0",
   });
 
   container.appendChild(btn);
@@ -221,25 +242,41 @@ function injectButton() {
 }
 
 function populateDropdown(dropdown, models) {
+  var dotColors = {
+    chatgpt: "#10a37f", claude: "#d97706", gemini: "#4285f4",
+    perplexity: "#20808d", deepseek: "#6366f1",
+  };
   for (var i = 0; i < models.length; i++) {
     var model = models[i];
     var item = document.createElement("button");
-    item.textContent = "Ask " + model.name;
+    var dc = dotColors[model.key] || "#888";
+    item.innerHTML =
+      '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' +
+      dc + ';margin-right:9px;flex-shrink:0"></span>' + model.name;
     item.dataset.modelKey = model.key;
     Object.assign(item.style, {
-      display:    "block",
+      display:    "flex",
+      alignItems: "center",
       width:      "100%",
-      padding:    "8px 14px",
+      padding:    "7px 12px",
       background: "transparent",
-      color:      "#e0e0e0",
+      color:      "#a1a1aa",
       border:     "none",
-      fontSize:   "13px",
+      fontSize:   "12.5px",
       cursor:     "pointer",
       textAlign:  "left",
       fontFamily: "inherit",
+      lineHeight: "1",
+      transition: "background 0.1s, color 0.1s",
     });
-    item.addEventListener("mouseenter", function () { this.style.background = "#2a2a3e"; });
-    item.addEventListener("mouseleave", function () { this.style.background = "transparent"; });
+    item.addEventListener("mouseenter", function () {
+      this.style.background = "rgba(255,255,255,0.06)";
+      this.style.color      = "#e4e4e7";
+    });
+    item.addEventListener("mouseleave", function () {
+      this.style.background = "transparent";
+      this.style.color      = "#a1a1aa";
+    });
     item.addEventListener("click", handleModelSelect);
     dropdown.appendChild(item);
   }
@@ -248,12 +285,18 @@ function populateDropdown(dropdown, models) {
 function toggleDropdown() {
   var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
   if (!dropdown) return;
-  dropdown.style.display = dropdown.style.display === "none" ? "block" : "none";
+  var showing = dropdown.style.display === "none";
+  dropdown.style.display = showing ? "block" : "none";
+  if (showing) {
+    dropdown.style.animation = "none";
+    dropdown.offsetHeight;
+    dropdown.style.animation = "dupermem-in 0.12s ease-out";
+  }
 }
 
 // ─── Model selection → summarize → capture ────────────────────────────────────
 
-async function handleModelSelect(e) {
+function handleModelSelect(e) {
   var modelKey = e.currentTarget.dataset.modelKey;
   var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
   if (dropdown) dropdown.style.display = "none";
@@ -271,12 +314,12 @@ async function handleModelSelect(e) {
   setBusy(btn, true);
 
   try {
-    var summary = await summarizeConversation();
+    var transcript = captureConversationText();
     var conversationId = DUPERMEM_CHAIN_CONV_ID || getConversationId();
 
     chrome.runtime.sendMessage({
       type:           "CAPTURE",
-      summary:        summary,
+      transcript:     transcript,
       targetModel:    modelKey,
       sourceModel:    DUPERMEM_SOURCE_MODEL,
       conversationId: conversationId,
@@ -291,7 +334,7 @@ async function handleModelSelect(e) {
         "Please refresh this tab (F5) and try again."
       );
     } else {
-      alert("DuperMemory: Summarization failed.\n\n" + err.message);
+      alert("DuperMemory: Capture failed.\n\n" + err.message);
     }
   } finally {
     setBusy(btn, false);
@@ -300,88 +343,12 @@ async function handleModelSelect(e) {
 
 function setBusy(btn, busy) {
   if (!btn) return;
-  btn.disabled         = busy;
-  btn.textContent      = busy ? "Summarizing\u2026" : "Ask another AI";
-  btn.style.background = busy ? "#4c1d95" : "#7c3aed";
-  btn.style.cursor     = busy ? "wait"    : "pointer";
-}
-
-// ─── Self-summarization (ChatGPT-specific) ────────────────────────────────────
-//
-// Injects SUMMARY_PROMPT into ChatGPT's own input, waits for ChatGPT's JSON
-// response, parses it. This is a real message visible in the user's chat.
-
-async function summarizeConversation() {
-  var countBefore = countAssistantMessages();
-
-  var injected = injectSummaryPrompt(SUMMARY_PROMPT);
-  if (!injected) {
-    throw new Error("[DuperMemory] Could not find ChatGPT's input field.");
-  }
-
-  await delay(300);
-
-  var submitted = submitChatGPTInput();
-  if (!submitted) {
-    throw new Error("[DuperMemory] Could not submit the summarization prompt.");
-  }
-
-  var rawText = await waitForNewAssistantMessage(countBefore);
-  return parseSummary(rawText);
-}
-
-function countAssistantMessages() {
-  return document.querySelectorAll("[data-message-author-role='assistant']").length;
-}
-
-// ─── Wait for new assistant message (for self-summarization) ──────────────────
-
-function waitForNewAssistantMessage(countBefore) {
-  var POLL_MS       = 500;
-  var STABLE_NEEDED = 4;
-  var TIMEOUT_MS    = 90000;
-
-  return new Promise(function (resolve, reject) {
-    var phase       = 1;
-    var lastContent = "";
-    var stableCount = 0;
-    var elapsed     = 0;
-
-    function tick() {
-      if (elapsed >= TIMEOUT_MS) {
-        reject(new Error("[DuperMemory] Timed out waiting for ChatGPT's summary response."));
-        return;
-      }
-
-      var allMsgs    = document.querySelectorAll("[data-message-author-role='assistant']");
-      var curCount   = allMsgs.length;
-      var lastMsg    = allMsgs[curCount - 1];
-      var curContent = lastMsg ? lastMsg.innerText.trim() : "";
-
-      if (phase === 1) {
-        if (curCount > countBefore && curContent.length > 0) {
-          phase = 2;
-          lastContent = curContent;
-        }
-      } else {
-        if (curContent === lastContent) {
-          stableCount++;
-          if (stableCount >= STABLE_NEEDED) {
-            resolve(curContent);
-            return;
-          }
-        } else {
-          stableCount = 0;
-          lastContent = curContent;
-        }
-      }
-
-      elapsed += POLL_MS;
-      setTimeout(tick, POLL_MS);
-    }
-
-    setTimeout(tick, POLL_MS);
-  });
+  btn.disabled = busy;
+  btn.innerHTML = busy
+    ? '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>Capturing\u2026'
+    : '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>Ask another AI';
+  btn.style.opacity = busy ? "0.5" : "1";
+  btn.style.cursor  = busy ? "wait" : "pointer";
 }
 
 // ─── Critique receiver ────────────────────────────────────────────────────────
@@ -478,14 +445,6 @@ function injectTextIntoChatGPT(el, text) {
   }
 }
 
-// Alias used by self-summarization flow.
-function injectSummaryPrompt(text) {
-  var el = findChatGPTInput();
-  if (!el) return false;
-  injectTextIntoChatGPT(el, text);
-  return true;
-}
-
 // ─── Submit ChatGPT input ─────────────────────────────────────────────────────
 
 function submitChatGPTInput() {
@@ -542,4 +501,16 @@ function extractContent(messageEl) {
   clone.querySelectorAll('button, [role="button"]').forEach(function (el) { el.remove(); });
   clone.querySelectorAll('[aria-hidden="true"]').forEach(function (el) { el.remove(); });
   return clone.innerText.trim();
+}
+
+function captureConversationText() {
+  var messages = captureMessages();
+  if (messages.length === 0) return "";
+
+  var lines = [];
+  for (var i = 0; i < messages.length; i++) {
+    var label = messages[i].role === "user" ? "User" : "Assistant";
+    lines.push(label + ":\n" + messages[i].content);
+  }
+  return lines.join("\n\n");
 }

@@ -2,7 +2,7 @@
 //
 // Message protocol (any-source, any-target):
 //
-//   {source}.js → background:     { type: "CAPTURE", summary: {...}, targetModel: "claude"|..., sourceModel: "chatgpt"|..., conversationId: "..." }
+//   {source}.js → background:     { type: "CAPTURE", transcript: "...", targetModel: "claude"|..., sourceModel: "chatgpt"|..., conversationId: "..." }
 //   {source}.js → background:     { type: "GET_MODELS", sourceModel: "chatgpt"|... }  → sendResponse with filtered model list
 //   {target}.js → background:     { type: "{MODEL}_READY" }    (e.g. CLAUDE_READY, CHATGPT_READY, ...)
 //   background → {target}.js:     { type: "INJECT", contextBlock: "..." }   ← sendResponse
@@ -38,9 +38,9 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     return false;
   }
 
-  // ── CAPTURE — any source content script sends a summary with a target model ──
+  // ── CAPTURE — any source content script sends a transcript with a target model ──
   if (message.type === "CAPTURE") {
-    handleCapture(message.summary, message.targetModel, message.conversationId, senderTabId);
+    handleCapture(message.transcript, message.targetModel, message.conversationId, senderTabId);
     return false;
   }
 
@@ -90,11 +90,11 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 });
 
-// ─── Capture + merge memory + open target ─────────────────────────────────────
+// ─── Capture transcript + read memory + open target ──────────────────────────
 
-function handleCapture(summary, targetModelKey, conversationId, sourceTabId) {
-  if (!summary || typeof summary !== "object") {
-    console.error("[DuperMemory] handleCapture: invalid summary", summary);
+function handleCapture(transcript, targetModelKey, conversationId, sourceTabId) {
+  if (!transcript || typeof transcript !== "string") {
+    console.error("[DuperMemory] handleCapture: invalid transcript", transcript);
     return;
   }
   if (!sourceTabId) {
@@ -112,15 +112,11 @@ function handleCapture(summary, targetModelKey, conversationId, sourceTabId) {
   // Use a stable conversation ID. If the source didn't provide one, generate one.
   var convId = conversationId || ("conv_" + Date.now());
 
-  // Read existing memory → merge summary → write back → format context → open tab.
+  // Read existing memory (may be populated from previous hops).
+  // Do NOT merge on capture — there is no structured summary to merge.
+  // Memory gets populated from the target's ---MEMORY--- response instead.
   readMemory(convId).then(function (memory) {
-    var merged = mergeMemory(memory, summary);
-
-    return writeMemory(merged).then(function () {
-      return merged;
-    });
-  }).then(function (merged) {
-    var contextBlock = formatContextBlock(merged);
+    var contextBlock = formatContextBlockFromTranscript(memory, transcript);
 
     chrome.tabs.create({ url: model.url }, function (tab) {
       if (chrome.runtime.lastError) {
@@ -134,11 +130,10 @@ function handleCapture(summary, targetModelKey, conversationId, sourceTabId) {
       };
     });
   }).catch(function (err) {
-    console.error("[DuperMemory] handleCapture memory flow failed:", err);
+    console.error("[DuperMemory] handleCapture memory read failed:", err);
 
-    // Fallback: format directly from summary without memory persistence.
-    var fallbackMemory = summaryToMemoryShape(summary);
-    var contextBlock = formatContextBlock(fallbackMemory);
+    // Fallback: format context without any memory.
+    var contextBlock = formatContextBlockFromTranscript(createEmptyMemory(convId), transcript);
 
     chrome.tabs.create({ url: model.url }, function (tab) {
       if (chrome.runtime.lastError) {

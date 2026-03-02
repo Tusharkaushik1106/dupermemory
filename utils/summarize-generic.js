@@ -1,43 +1,15 @@
-// utils/summarize-generic.js — Shared summarization constants and parser
+// utils/summarize-generic.js — Shared parsing utilities
 //
 // Loaded as a content script on ALL supported AI sites via manifest.json.
+// Also loaded into the service worker via importScripts.
 // Must not use ES module syntax — functions are plain globals.
 //
 // Contains:
-//   - SUMMARY_PROMPT: the prompt injected into any AI to get a structured JSON summary
-//   - parseSummary(): normalizes the AI's JSON response into a consistent shape
+//   - parseSummary(): normalizes JSON responses into a consistent shape
+//     (used as fallback by parseTargetResponse when target AI returns JSON)
 //   - delay(): simple promise-based sleep
-//
-// Does NOT contain any DOM interaction. Each content script implements its own:
-//   - findInput(), injectText(), submitInput() — site-specific selectors
-//   - waitForSummaryResponse() — site-specific response detection
-//   - summarizeConversation() — orchestrates the above
-//
-// This replaces the old utils/summarize.js which was ChatGPT-specific.
-
-// ─── Prompt ───────────────────────────────────────────────────────────────────
-
-// We tell the AI exactly what shape to return and repeat the constraint
-// ("no other text") twice because models tend to add preambles otherwise.
-// The field descriptions are inline so the AI knows what each field means
-// without us having to include the full conversation in the prompt text.
-var SUMMARY_PROMPT =
-  "Summarize our conversation for a browser extension. " +
-  "Reply with ONLY valid JSON — no markdown fences, no explanation, nothing else. " +
-  "Use exactly this structure:\n" +
-  "{\n" +
-  '  "topic": "one sentence — what this conversation is about",\n' +
-  '  "user_goal": "what the user is ultimately trying to accomplish",\n' +
-  '  "important_facts": ["key fact or constraint mentioned", "..."],\n' +
-  '  "decisions_made": ["conclusion or choice that was reached", "..."],\n' +
-  '  "current_task": "the specific thing being worked on most recently",\n' +
-  '  "entities": [\n' +
-  '    { "name": "entity name", "type": "technology | concept | tool | requirement | constraint | other", "summary": "one sentence about this entity in context" }\n' +
-  "  ],\n" +
-  '  "open_questions": ["unresolved question from the conversation", "..."],\n' +
-  '  "constraints": ["hard constraint the user stated", "..."]\n' +
-  "}\n" +
-  "No other text.";
+//   - parseTargetResponse(): splits target AI response into reply + memory update
+//   - parseMemoryBlock(): parses labeled plain-text memory blocks
 
 // ─── Parse summary ────────────────────────────────────────────────────────────
 
@@ -93,7 +65,7 @@ function delay(ms) {
 // Splits a target AI's full response into a conversational reply and an
 // optional structured memory update.
 //
-// The target prompt (from formatContextBlock) asks the AI to append a
+// The target prompt (from formatContextBlockFromTranscript) asks the AI to append a
 // memory note inside ---MEMORY--- ... ---END MEMORY--- markers after its
 // natural reply. The memory note uses labeled plain-text lines, not JSON.
 //

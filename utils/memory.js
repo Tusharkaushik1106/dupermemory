@@ -81,7 +81,7 @@ function writeMemory(memory) {
 // Takes the existing memory and a new summary object from ChatGPT's
 // self-summarization (which now includes entities). Merges non-destructively.
 //
-// summary shape (from extended SUMMARY_PROMPT):
+// summary shape (from parseTargetResponse / parseMemoryBlock):
 //   {
 //     topic, user_goal, current_task,
 //     important_facts: [...],
