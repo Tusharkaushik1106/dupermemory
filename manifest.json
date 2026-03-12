@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "DuperMemory",
+  "version": "0.4.0",
+  "description": "Send any AI conversation to another AI with one click. Supports ChatGPT, Claude, Gemini, Perplexity, and DeepSeek.",
+
+  "permissions": [
+    "tabs",
+    "storage",
+    "contextMenus"
+  ],
+
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://www.perplexity.ai/*",
+    "https://chat.deepseek.com/*"
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DuperMemory"
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "commands": {
+    "toggle-dropdown": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "Command+Shift+D"
+      },
+      "description": "Toggle DuperMemory dropdown"
+    }
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["utils/summarize-generic.js", "content/chatgpt.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["utils/summarize-generic.js", "content/claude.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["utils/summarize-generic.js", "content/gemini.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.perplexity.ai/*"],
+      "js": ["utils/summarize-generic.js", "content/perplexity.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["utils/summarize-generic.js", "content/deepseek.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
