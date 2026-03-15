@@ -40,27 +40,27 @@
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*"],
-      "js": ["utils/summarize-generic.js", "content/chatgpt.js"],
+      "js": ["utils/summarize-generic.js", "content/chatgpt.js", "utils/ui-inject.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://claude.ai/*"],
-      "js": ["utils/summarize-generic.js", "content/claude.js"],
+      "js": ["utils/summarize-generic.js", "content/claude.js", "utils/ui-inject.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://gemini.google.com/*"],
-      "js": ["utils/summarize-generic.js", "content/gemini.js"],
+      "js": ["utils/summarize-generic.js", "content/gemini.js", "utils/ui-inject.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.perplexity.ai/*"],
-      "js": ["utils/summarize-generic.js", "content/perplexity.js"],
+      "js": ["utils/summarize-generic.js", "content/perplexity.js", "utils/ui-inject.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://chat.deepseek.com/*"],
-      "js": ["utils/summarize-generic.js", "content/deepseek.js"],
+      "js": ["utils/summarize-generic.js", "content/deepseek.js", "utils/ui-inject.js"],
       "run_at": "document_idle"
     }
   ]

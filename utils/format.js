@@ -124,7 +124,7 @@ function formatContextBlockFromTranscript(memory, transcript) {
   // ── Transcript ──────────────────────────────────────────────────────────
   lines.push("");
   lines.push("--- transcript ---");
-  lines.push(transcript);
+  lines.push(sanitizeMetaPrompt(transcript));
   lines.push("--- end transcript ---");
 
   // ── Task instruction ────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ importScripts("utils/models.js");
 importScripts("utils/format.js");
 importScripts("utils/memory.js");
 importScripts("utils/summarize-generic.js");
+importScripts("utils/replay-prompt.js");
 
 var pendingContext = {}; // targetTabId → { contextBlock, sourceTabId, conversationId }
 var pendingReview  = {}; // targetTabId → { sourceTabId, conversationId }
@@ -53,6 +54,12 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   // ── CAPTURE — any source content script sends a transcript with a target model ──
   if (message.type === "CAPTURE") {
     handleCapture(message.transcript, message.targetModel, message.conversationId, senderTabId);
+    return false;
+  }
+
+  // ── REPLAY_CONVERSATION — raw transcript replay flow ────────────────────
+  if (message.type === "REPLAY_CONVERSATION") {
+    handleReplay(message.transcript, message.targetModel, message.conversationId, senderTabId);
     return false;
   }
 
@@ -164,6 +171,42 @@ function handleCapture(transcript, targetModelKey, conversationId, sourceTabId) 
       };
       sendStatusUpdate(sourceTabId, "opening", model.name);
     });
+  });
+}
+
+// ─── Replay: wrap transcript in meta-prompt + open target ───────────────────
+
+function handleReplay(transcript, targetModelKey, conversationId, sourceTabId) {
+  if (!transcript || typeof transcript !== "string") {
+    console.error("[DuperMemory] handleReplay: invalid transcript");
+    return;
+  }
+  if (!sourceTabId) {
+    console.error("[DuperMemory] handleReplay: could not identify source tab");
+    return;
+  }
+
+  var model = MODEL_REGISTRY[targetModelKey];
+  if (!model) {
+    console.error("[DuperMemory] handleReplay: unknown target model", targetModelKey);
+    return;
+  }
+
+  var convId = conversationId || ("conv_" + Date.now());
+  var replayPrompt = buildReplayPrompt(transcript);
+
+  chrome.tabs.create({ url: model.url }, function (tab) {
+    if (chrome.runtime.lastError) {
+      console.error("[DuperMemory] Failed to open " + model.name + " tab:", chrome.runtime.lastError.message);
+      sendStatusUpdate(sourceTabId, "idle");
+      return;
+    }
+    pendingContext[tab.id] = {
+      contextBlock:   replayPrompt,
+      sourceTabId:    sourceTabId,
+      conversationId: convId,
+    };
+    sendStatusUpdate(sourceTabId, "opening", model.name);
   });
 }
 

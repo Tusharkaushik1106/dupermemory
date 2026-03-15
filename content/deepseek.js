@@ -19,8 +19,6 @@
 //   parseSummary(), delay()
 
 var DUPERMEM_SOURCE_MODEL = "deepseek";
-var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
-var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 
 // When this tab was opened as a target by DuperMemory, store the chain's
 // conversation ID so that if the user later uses this tab as a source,
@@ -81,8 +79,6 @@ async function runTargetInjectionFlow(contextBlock) {
 // SOURCE FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-injectButton();
-
 // ─── Conversation ID ──────────────────────────────────────────────────────────
 
 function getConversationId() {
@@ -92,236 +88,6 @@ function getConversationId() {
   return "deepseek_conv_" + Date.now();
 }
 
-// ─── Button + Dropdown ────────────────────────────────────────────────────────
-
-function injectButton() {
-  if (document.getElementById(DUPERMEM_BUTTON_ID)) return;
-
-  var styleTag = document.createElement("style");
-  styleTag.textContent =
-    "@keyframes dupermem-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}";
-  document.head.appendChild(styleTag);
-
-  var container = document.createElement("div");
-  container.id = DUPERMEM_BUTTON_ID + "-container";
-  Object.assign(container.style, {
-    position:      "fixed",
-    top:           "14px",
-    right:         "14px",
-    zIndex:        "2147483647",
-    display:       "flex",
-    flexDirection: "column",
-    alignItems:    "flex-end",
-    fontFamily:    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-  });
-
-  var btn = document.createElement("button");
-  btn.id = DUPERMEM_BUTTON_ID;
-  btn.innerHTML = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>Ask another AI';
-  Object.assign(btn.style, {
-    padding:              "6px 12px",
-    background:           "rgba(15, 15, 20, 0.82)",
-    color:                "#d4d4d8",
-    border:               "1px solid rgba(255,255,255,0.08)",
-    borderRadius:         "8px",
-    fontSize:             "12.5px",
-    fontWeight:           "500",
-    cursor:               "pointer",
-    boxShadow:            "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)",
-    lineHeight:           "1",
-    letterSpacing:        "0.01em",
-    transition:           "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-    backdropFilter:       "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-  });
-  btn.addEventListener("mouseenter", function () {
-    btn.style.background  = "rgba(28, 28, 38, 0.92)";
-    btn.style.borderColor = "rgba(255,255,255,0.14)";
-    btn.style.boxShadow   = "0 2px 8px rgba(0,0,0,0.3), 0 6px 16px rgba(0,0,0,0.15)";
-  });
-  btn.addEventListener("mouseleave", function () {
-    btn.style.background  = "rgba(15, 15, 20, 0.82)";
-    btn.style.borderColor = "rgba(255,255,255,0.08)";
-    btn.style.boxShadow   = "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)";
-  });
-  btn.addEventListener("click", toggleDropdown);
-
-  var dropdown = document.createElement("div");
-  dropdown.id = DUPERMEM_DROPDOWN_ID;
-  Object.assign(dropdown.style, {
-    display:              "none",
-    marginTop:            "6px",
-    background:           "rgba(18, 18, 24, 0.92)",
-    border:               "1px solid rgba(255,255,255,0.07)",
-    borderRadius:         "10px",
-    boxShadow:            "0 8px 30px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.08)",
-    overflow:             "hidden",
-    minWidth:             "160px",
-    backdropFilter:       "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    padding:              "4px 0",
-  });
-
-  var label = document.createElement("div");
-  label.textContent = "DUPERMEMORY";
-  Object.assign(label.style, {
-    padding:       "7px 12px 3px",
-    fontSize:      "9.5px",
-    fontWeight:    "600",
-    color:         "#52525b",
-    letterSpacing: "0.06em",
-  });
-  dropdown.appendChild(label);
-
-  container.appendChild(btn);
-  container.appendChild(dropdown);
-  document.body.appendChild(container);
-
-  chrome.runtime.sendMessage({ type: "GET_MODELS", sourceModel: DUPERMEM_SOURCE_MODEL }, function (response) {
-    if (chrome.runtime.lastError || !response || !response.models) {
-      console.warn("[DuperMemory] Could not load model list:", chrome.runtime.lastError);
-      return;
-    }
-    populateDropdown(dropdown, response.models);
-  });
-
-  document.addEventListener("click", function (e) {
-    if (!container.contains(e.target)) {
-      dropdown.style.display = "none";
-    }
-  });
-}
-
-function populateDropdown(dropdown, models) {
-  var dotColors = {
-    chatgpt: "#10a37f", claude: "#d97706", gemini: "#4285f4",
-    perplexity: "#20808d", deepseek: "#6366f1",
-  };
-  for (var i = 0; i < models.length; i++) {
-    var model = models[i];
-    var item = document.createElement("button");
-    var dc = dotColors[model.key] || "#888";
-    item.innerHTML =
-      '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' +
-      dc + ';margin-right:9px;flex-shrink:0"></span>' + model.name;
-    item.dataset.modelKey = model.key;
-    Object.assign(item.style, {
-      display:    "flex",
-      alignItems: "center",
-      width:      "100%",
-      padding:    "7px 12px",
-      background: "transparent",
-      color:      "#a1a1aa",
-      border:     "none",
-      fontSize:   "12.5px",
-      cursor:     "pointer",
-      textAlign:  "left",
-      fontFamily: "inherit",
-      lineHeight: "1",
-      transition: "background 0.1s, color 0.1s",
-    });
-    item.addEventListener("mouseenter", function () {
-      this.style.background = "rgba(255,255,255,0.06)";
-      this.style.color      = "#e4e4e7";
-    });
-    item.addEventListener("mouseleave", function () {
-      this.style.background = "transparent";
-      this.style.color      = "#a1a1aa";
-    });
-    item.addEventListener("click", handleModelSelect);
-    dropdown.appendChild(item);
-  }
-}
-
-function toggleDropdown() {
-  var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
-  if (!dropdown) return;
-  var showing = dropdown.style.display === "none";
-  dropdown.style.display = showing ? "block" : "none";
-  if (showing) {
-    dropdown.style.animation = "none";
-    dropdown.offsetHeight;
-    dropdown.style.animation = "dupermem-in 0.12s ease-out";
-  }
-}
-
-// ─── Model selection → summarize → capture ────────────────────────────────────
-
-function handleModelSelect(e) {
-  var modelKey = e.currentTarget.dataset.modelKey;
-  var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
-  if (dropdown) dropdown.style.display = "none";
-
-  var btn = document.getElementById(DUPERMEM_BUTTON_ID);
-  setStatus(btn, "capturing");
-  if (DUPERMEM_STATUS_TIMEOUT) clearTimeout(DUPERMEM_STATUS_TIMEOUT);
-  DUPERMEM_STATUS_TIMEOUT = setTimeout(function () {
-    var b = document.getElementById(DUPERMEM_BUTTON_ID);
-    if (b && b.disabled) setStatus(b, "idle");
-  }, 120000);
-
-  try {
-    var transcript = captureConversationText();
-    if (!transcript || transcript.length < 20) {
-      setStatus(btn, "idle");
-      alert(
-        "DuperMemory: No conversation content found.\n\n" +
-        "Make sure you are on a conversation page with at least one message."
-      );
-      return;
-    }
-
-    var conversationId = DUPERMEM_CHAIN_CONV_ID || getConversationId();
-
-    chrome.runtime.sendMessage({
-      type:           "CAPTURE",
-      transcript:     transcript,
-      targetModel:    modelKey,
-      sourceModel:    DUPERMEM_SOURCE_MODEL,
-      conversationId: conversationId,
-    });
-
-  } catch (err) {
-    console.error("[DuperMemory]", err);
-    setStatus(btn, "idle");
-
-    if (err.message && err.message.indexOf("Extension context invalidated") !== -1) {
-      alert("DuperMemory: Extension was reloaded.\n\nPlease refresh this tab (F5) and try again.");
-    } else {
-      alert("DuperMemory: Capture failed.\n\n" + err.message);
-    }
-  }
-}
-
-var DUPERMEM_STATUS_TIMEOUT = null;
-
-function setStatus(btn, status, detail) {
-  if (!btn) return;
-  var icon = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>';
-  if (status === "idle") {
-    btn.disabled = false;
-    btn.innerHTML = icon + "Ask another AI";
-    btn.style.opacity = "1";
-    btn.style.cursor  = "pointer";
-    if (DUPERMEM_STATUS_TIMEOUT) { clearTimeout(DUPERMEM_STATUS_TIMEOUT); DUPERMEM_STATUS_TIMEOUT = null; }
-    return;
-  }
-  btn.disabled = true;
-  btn.style.cursor = "wait";
-  var labels = {
-    capturing: "Capturing\u2026",
-    opening:   "Opening " + (detail || "target") + "\u2026",
-    waiting:   "Waiting for response\u2026",
-    done:      "Done \u2713",
-  };
-  btn.innerHTML = icon + (labels[status] || status);
-  btn.style.opacity = status === "done" ? "1" : "0.7";
-  if (status === "done") {
-    if (DUPERMEM_STATUS_TIMEOUT) clearTimeout(DUPERMEM_STATUS_TIMEOUT);
-    DUPERMEM_STATUS_TIMEOUT = setTimeout(function () { setStatus(btn, "idle"); }, 2000);
-  }
-}
-
 // ─── Critique receiver ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(function (message) {
@@ -329,13 +95,6 @@ chrome.runtime.onMessage.addListener(function (message) {
     injectCritiqueFlow(message.content).catch(function (err) {
       console.error("[DuperMemory] Critique injection failed:", err.message);
     });
-  }
-  if (message.type === "STATUS_UPDATE") {
-    var btn = document.getElementById(DUPERMEM_BUTTON_ID);
-    setStatus(btn, message.status, message.detail);
-  }
-  if (message.type === "TOGGLE_DROPDOWN") {
-    toggleDropdown();
   }
 });
 
@@ -510,9 +269,151 @@ function waitForDeepSeekResponse(scopeEl, snapshot) {
   });
 }
 
+// ─── Message capture ──────────────────────────────────────────────────────────
+//
+// Strategy: DeepSeek's chat UI uses class-based containers for user and
+// assistant messages. User messages often have a distinct container with
+// right-alignment or a user avatar. Assistant messages contain .markdown
+// or .ds-markdown wrappers. Fallback: alternating children within the
+// chat history container (#root or main scrollable area).
+
+function captureMessages() {
+  // ── Primary: class-based message containers ────────────────────────────
+  var turns = document.querySelectorAll(
+    '[class*="chat-message"], [class*="message-item"], ' +
+    '[data-testid*="message"], [data-testid*="turn"], ' +
+    '[class*="ds-message"], [class*="chat-item"]'
+  );
+  if (turns.length > 0) {
+    return extractFromDeepSeekTurns(turns);
+  }
+
+  // ── Fallback 1: find user/assistant blocks by content wrappers ─────────
+  var messages = tryDeepSeekContentCapture();
+  if (messages.length > 0) return messages;
+
+  // ── Fallback 2: alternating children of the chat container ─────────────
+  var container =
+    document.querySelector('[class*="chat-container"]') ||
+    document.querySelector('[class*="conversation"]') ||
+    document.querySelector("main") ||
+    document.querySelector("#root");
+  if (container) {
+    return extractFromAlternatingChildren(container);
+  }
+
+  return [];
+}
+
+function extractFromDeepSeekTurns(turns) {
+  var messages = [];
+  for (var i = 0; i < turns.length; i++) {
+    var el = turns[i];
+    var role = inferDeepSeekRole(el);
+    if (!role) continue;
+    var content = extractCleanContent(el);
+    if (content) messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+function tryDeepSeekContentCapture() {
+  var messages = [];
+
+  // DeepSeek often has the chat scroll container as a direct child of #root
+  // with alternating user (right-aligned) and assistant (left-aligned) blocks
+  var scrollable =
+    document.querySelector('[class*="overflow-y-auto"]') ||
+    document.querySelector('[class*="scroll"]') ||
+    document.querySelector('[class*="chat-history"]');
+  if (!scrollable) return [];
+
+  var children = scrollable.children;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i].offsetHeight < 20) continue;
+    var content = extractCleanContent(children[i]);
+    if (!content) continue;
+    var role = inferDeepSeekRole(children[i]);
+    if (!role) role = (messages.length % 2 === 0) ? "user" : "assistant";
+    messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+function extractFromAlternatingChildren(container) {
+  var messages = [];
+  var children = container.children;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i].offsetHeight < 20) continue;
+    var content = extractCleanContent(children[i]);
+    if (!content) continue;
+    var role = inferDeepSeekRole(children[i]);
+    if (!role) role = (messages.length % 2 === 0) ? "user" : "assistant";
+    messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+function inferDeepSeekRole(el) {
+  var html = el.outerHTML.slice(0, 500).toLowerCase();
+
+  // Class / data-attribute signals
+  if (/\buser[-_]/.test(html) || /\bhuman\b/.test(html) || /\bself\b/.test(html)) return "user";
+  if (/\bassistant\b/.test(html) || /\bbot[-_]/.test(html) || /\bdeepseek\b/.test(html) || /\bai[-_]/.test(html)) return "assistant";
+
+  // ARIA
+  var ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
+  if (/user|you|human/.test(ariaLabel)) return "user";
+  if (/assistant|deepseek|ai|bot/.test(ariaLabel)) return "assistant";
+
+  // Content wrapper presence (markdown = assistant)
+  if (el.querySelector('.ds-markdown, .markdown, [class*="markdown"], [class*="rendered"]')) return "assistant";
+
+  // Alignment heuristic: user messages are often right-justified
+  var style = window.getComputedStyle(el);
+  if (style.textAlign === "right" || style.justifyContent === "flex-end") return "user";
+
+  return null;
+}
+
+// ─── Clean content extraction ────────────────────────────────────────────────
+
+function extractCleanContent(el) {
+  var clone = el.cloneNode(true);
+
+  var junk = clone.querySelectorAll(
+    'button, [role="button"], svg, [aria-hidden="true"], ' +
+    '[class*="copy"], [class*="toolbar"], [class*="action"], [class*="avatar"], ' +
+    '[class*="icon"], [class*="badge"], [class*="timestamp"], ' +
+    '[aria-label="Copy"], [aria-label="Regenerate"]'
+  );
+  for (var i = 0; i < junk.length; i++) {
+    junk[i].remove();
+  }
+
+  var wrapper =
+    clone.querySelector(".ds-markdown") ||
+    clone.querySelector(".markdown") ||
+    clone.querySelector('[class*="markdown"]') ||
+    clone.querySelector('[class*="message-content"]') ||
+    clone;
+
+  var text = wrapper.textContent.trim();
+  text = text.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+/g, " ");
+  return text;
+}
+
 function captureConversationText() {
-  var scopeEl = document.querySelector("main") || document.querySelector("#root") || document.body;
-  return scopeEl.innerText.trim();
+  var messages = captureMessages();
+  if (messages.length === 0) {
+    var scopeEl = document.querySelector("main") || document.querySelector("#root") || document.body;
+    return scopeEl.innerText.trim();
+  }
+  return flattenInjectedContext(messages);
+}
+
+function formatMessagesAsTranscript(messages) {
+  return flattenInjectedContext(messages);
 }
 
 function extractResponse(beforeText, afterText) {

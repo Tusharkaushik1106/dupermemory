@@ -187,6 +187,214 @@ function parseMemoryBlock(blockStr) {
   };
 }
 
+// ─── Context flattener ───────────────────────────────────────────────────────
+//
+// When chaining transfers (e.g. ChatGPT → Claude → Gemini), the captured
+// conversation contains a "user" message that is actually our injected
+// meta-prompt wrapping an older transcript. Naively re-wrapping it creates
+// recursive nesting (the "Russian Doll" problem).
+//
+// Instead of deleting or collapsing that content, we *extract* the historical
+// transcript from inside the meta-prompt and return it so the caller can
+// splice it inline — producing a single flat timeline across all hops.
+//
+// Two injection patterns are recognized:
+//   1. Replay:  "I am transferring..." + --- TRANSCRIPT START --- ... --- TRANSCRIPT END ---
+//   2. Capture: "Hey — I'm picking up..." + --- transcript --- ... --- end transcript ---
+//
+// flattenMetaPrompt(content) returns:
+//   { flattened: true,  history: "User: ...\n\nAssistant: ...", userExtra: "..." }
+//     — if a meta-prompt was detected and an inner transcript was extracted.
+//       userExtra contains any text the user appended after the meta-prompt block.
+//
+//   { flattened: false, content: "original text" }
+//     — if no meta-prompt was detected (pass-through).
+
+// Boilerplate signatures we look for
+var DUPERMEM_BOILERPLATE_SIGNATURES = [
+  "I am transferring a conversation I just had with another AI assistant",
+  "I\u2019m picking up a conversation that was happening on another AI",
+  "Hey \u2014 I\u2019m picking up a conversation",
+  "Hey — I'm picking up a conversation",
+];
+
+function flattenMetaPrompt(content) {
+  if (!content || typeof content !== "string") {
+    return { flattened: false, content: content || "" };
+  }
+
+  // Quick check: does this contain any DuperMemory boilerplate?
+  var hasBoilerplate = false;
+  for (var i = 0; i < DUPERMEM_BOILERPLATE_SIGNATURES.length; i++) {
+    if (content.indexOf(DUPERMEM_BOILERPLATE_SIGNATURES[i]) !== -1) {
+      hasBoilerplate = true;
+      break;
+    }
+  }
+  if (!hasBoilerplate) {
+    return { flattened: false, content: content };
+  }
+
+  // Try to extract inner transcript from replay-style delimiters
+  var history = extractBetween(content,
+    /---\s*TRANSCRIPT START\s*---/,
+    /---\s*TRANSCRIPT END\s*---/
+  );
+
+  // Try capture-style delimiters if replay-style wasn't found
+  if (!history) {
+    history = extractBetween(content,
+      /---\s*transcript\s*---/i,
+      /---\s*end transcript\s*---/i
+    );
+  }
+
+  if (!history) {
+    // Boilerplate signature is present but no delimiters found.
+    // Strip the boilerplate wrapper as best we can and return the rest.
+    var stripped = content;
+    stripped = stripped.replace(
+      /I am transferring a conversation I just had with another AI assistant[\s\S]*?(?=User:|Assistant:|$)/i, ""
+    );
+    stripped = stripped.replace(
+      /Hey\s*[\u2014\u2013—-]\s*I['\u2019]m picking up a conversation[\s\S]*?(?=User:|Assistant:|$)/i, ""
+    );
+    stripped = stripped.trim();
+    if (stripped) {
+      return { flattened: true, history: stripped, userExtra: "" };
+    }
+    return { flattened: false, content: content };
+  }
+
+  // Clean the extracted history: strip any nested boilerplate recursively
+  history = history.trim();
+
+  // Remove memory-note instruction blocks that may be inside the transcript
+  history = history.replace(
+    /At the end of your reply,\s*include a brief memory note[\s\S]*?---\s*END MEMORY\s*---/g, ""
+  );
+
+  // Remove task instruction lines
+  history = history.replace(
+    /The transcript above is the raw conversation from the other AI\.[\s\S]*?(?=\n\n(?:User|Assistant):|$)/g, ""
+  );
+
+  // Remove notes-from-prior-sessions blocks
+  history = history.replace(
+    /---\s*notes from prior sessions\s*---[\s\S]*?---\s*end notes\s*---/g, ""
+  );
+
+  // Remove any "Respond naturally" / "Please continue helping" instruction lines
+  history = history.replace(
+    /^(?:Respond naturally|Please continue helping)[\s\S]*$/m, ""
+  );
+
+  history = history.replace(/\n{3,}/g, "\n\n").trim();
+
+  // Recursively flatten in case of deeply nested chains (3+ hops)
+  var nested = flattenMetaPrompt(history);
+  if (nested.flattened) {
+    history = nested.history;
+    // Merge any nested userExtra into the history
+    if (nested.userExtra) {
+      history = history + "\n\nUser: " + nested.userExtra;
+    }
+  }
+
+  // Extract any user text that was appended AFTER the meta-prompt block.
+  // This is real user content that came after --- TRANSCRIPT END ---.
+  var userExtra = "";
+  var endPattern = /---\s*TRANSCRIPT END\s*---/i;
+  var endMatch = content.match(endPattern);
+  if (!endMatch) {
+    endPattern = /---\s*end transcript\s*---/i;
+    endMatch = content.match(endPattern);
+  }
+  if (endMatch) {
+    var afterEnd = content.slice(endMatch.index + endMatch[0].length).trim();
+    // Strip any trailing boilerplate instructions
+    afterEnd = afterEnd.replace(
+      /At the end of your reply[\s\S]*?---\s*END MEMORY\s*---/g, ""
+    );
+    afterEnd = afterEnd.replace(
+      /The transcript above is the raw conversation[\s\S]*/g, ""
+    );
+    afterEnd = afterEnd.replace(
+      /^(?:Respond naturally|Please continue helping)[\s\S]*$/m, ""
+    );
+    afterEnd = afterEnd.replace(/\n{3,}/g, "\n\n").trim();
+    if (afterEnd) {
+      userExtra = afterEnd;
+    }
+  }
+
+  return { flattened: true, history: history, userExtra: userExtra };
+}
+
+// Helper: extract text between two regex-matched delimiters.
+function extractBetween(text, startPattern, endPattern) {
+  var startMatch = text.match(startPattern);
+  if (!startMatch) return null;
+  var afterStart = text.slice(startMatch.index + startMatch[0].length);
+
+  var endMatch = afterStart.match(endPattern);
+  if (!endMatch) return null;
+
+  return afterStart.slice(0, endMatch.index);
+}
+
+// Legacy wrapper — kept for format.js which calls sanitizeMetaPrompt on
+// the raw transcript string (not individual messages). For that use case,
+// we just extract and return the inner transcript if present.
+function sanitizeMetaPrompt(content) {
+  var result = flattenMetaPrompt(content);
+  if (result.flattened) {
+    var out = result.history;
+    if (result.userExtra) {
+      out += "\n\nUser: " + result.userExtra;
+    }
+    return out;
+  }
+  return result.content;
+}
+
+// ─── Universal context flattener ─────────────────────────────────────────────
+//
+// Takes an array of { role, content } messages extracted from the DOM and
+// returns a flat transcript string with all DuperMemory meta-prompt wrappers
+// stripped and their inner transcripts spliced inline.
+//
+// Both the "Ask Another AI" (CAPTURE) flow and the "Replay" flow call this
+// before passing the transcript to their respective prompt builders, ensuring
+// recursive boilerplate never reaches the target AI.
+
+function flattenInjectedContext(messages) {
+  var lines = [];
+  for (var i = 0; i < messages.length; i++) {
+    var msg = messages[i];
+    var label = msg.role === "user" ? "User" : "Assistant";
+
+    var result = flattenMetaPrompt(msg.content);
+    if (result.flattened) {
+      // Splice the extracted historical transcript inline —
+      // this preserves the full conversation timeline from prior hops.
+      if (result.history) {
+        lines.push(result.history);
+      }
+      // If the user appended their own text after the meta-prompt,
+      // include it as a separate user message.
+      if (result.userExtra) {
+        lines.push("User: " + result.userExtra);
+      }
+    } else {
+      if (result.content) {
+        lines.push(label + ": " + result.content);
+      }
+    }
+  }
+  return lines.join("\n\n");
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function splitSemicolons(str) {

@@ -19,8 +19,6 @@
 //   parseSummary(), delay()
 
 var DUPERMEM_SOURCE_MODEL = "perplexity";
-var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
-var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
 
 // When this tab was opened as a target by DuperMemory, store the chain's
 // conversation ID so that if the user later uses this tab as a source,
@@ -81,8 +79,6 @@ async function runTargetInjectionFlow(contextBlock) {
 // SOURCE FLOW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-injectButton();
-
 // ─── Conversation ID ──────────────────────────────────────────────────────────
 
 function getConversationId() {
@@ -92,236 +88,6 @@ function getConversationId() {
   return "perplexity_conv_" + Date.now();
 }
 
-// ─── Button + Dropdown ────────────────────────────────────────────────────────
-
-function injectButton() {
-  if (document.getElementById(DUPERMEM_BUTTON_ID)) return;
-
-  var styleTag = document.createElement("style");
-  styleTag.textContent =
-    "@keyframes dupermem-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}";
-  document.head.appendChild(styleTag);
-
-  var container = document.createElement("div");
-  container.id = DUPERMEM_BUTTON_ID + "-container";
-  Object.assign(container.style, {
-    position:      "fixed",
-    top:           "14px",
-    right:         "14px",
-    zIndex:        "2147483647",
-    display:       "flex",
-    flexDirection: "column",
-    alignItems:    "flex-end",
-    fontFamily:    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-  });
-
-  var btn = document.createElement("button");
-  btn.id = DUPERMEM_BUTTON_ID;
-  btn.innerHTML = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>Ask another AI';
-  Object.assign(btn.style, {
-    padding:              "6px 12px",
-    background:           "rgba(15, 15, 20, 0.82)",
-    color:                "#d4d4d8",
-    border:               "1px solid rgba(255,255,255,0.08)",
-    borderRadius:         "8px",
-    fontSize:             "12.5px",
-    fontWeight:           "500",
-    cursor:               "pointer",
-    boxShadow:            "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)",
-    lineHeight:           "1",
-    letterSpacing:        "0.01em",
-    transition:           "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-    backdropFilter:       "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-  });
-  btn.addEventListener("mouseenter", function () {
-    btn.style.background  = "rgba(28, 28, 38, 0.92)";
-    btn.style.borderColor = "rgba(255,255,255,0.14)";
-    btn.style.boxShadow   = "0 2px 8px rgba(0,0,0,0.3), 0 6px 16px rgba(0,0,0,0.15)";
-  });
-  btn.addEventListener("mouseleave", function () {
-    btn.style.background  = "rgba(15, 15, 20, 0.82)";
-    btn.style.borderColor = "rgba(255,255,255,0.08)";
-    btn.style.boxShadow   = "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)";
-  });
-  btn.addEventListener("click", toggleDropdown);
-
-  var dropdown = document.createElement("div");
-  dropdown.id = DUPERMEM_DROPDOWN_ID;
-  Object.assign(dropdown.style, {
-    display:              "none",
-    marginTop:            "6px",
-    background:           "rgba(18, 18, 24, 0.92)",
-    border:               "1px solid rgba(255,255,255,0.07)",
-    borderRadius:         "10px",
-    boxShadow:            "0 8px 30px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.08)",
-    overflow:             "hidden",
-    minWidth:             "160px",
-    backdropFilter:       "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    padding:              "4px 0",
-  });
-
-  var label = document.createElement("div");
-  label.textContent = "DUPERMEMORY";
-  Object.assign(label.style, {
-    padding:       "7px 12px 3px",
-    fontSize:      "9.5px",
-    fontWeight:    "600",
-    color:         "#52525b",
-    letterSpacing: "0.06em",
-  });
-  dropdown.appendChild(label);
-
-  container.appendChild(btn);
-  container.appendChild(dropdown);
-  document.body.appendChild(container);
-
-  chrome.runtime.sendMessage({ type: "GET_MODELS", sourceModel: DUPERMEM_SOURCE_MODEL }, function (response) {
-    if (chrome.runtime.lastError || !response || !response.models) {
-      console.warn("[DuperMemory] Could not load model list:", chrome.runtime.lastError);
-      return;
-    }
-    populateDropdown(dropdown, response.models);
-  });
-
-  document.addEventListener("click", function (e) {
-    if (!container.contains(e.target)) {
-      dropdown.style.display = "none";
-    }
-  });
-}
-
-function populateDropdown(dropdown, models) {
-  var dotColors = {
-    chatgpt: "#10a37f", claude: "#d97706", gemini: "#4285f4",
-    perplexity: "#20808d", deepseek: "#6366f1",
-  };
-  for (var i = 0; i < models.length; i++) {
-    var model = models[i];
-    var item = document.createElement("button");
-    var dc = dotColors[model.key] || "#888";
-    item.innerHTML =
-      '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' +
-      dc + ';margin-right:9px;flex-shrink:0"></span>' + model.name;
-    item.dataset.modelKey = model.key;
-    Object.assign(item.style, {
-      display:    "flex",
-      alignItems: "center",
-      width:      "100%",
-      padding:    "7px 12px",
-      background: "transparent",
-      color:      "#a1a1aa",
-      border:     "none",
-      fontSize:   "12.5px",
-      cursor:     "pointer",
-      textAlign:  "left",
-      fontFamily: "inherit",
-      lineHeight: "1",
-      transition: "background 0.1s, color 0.1s",
-    });
-    item.addEventListener("mouseenter", function () {
-      this.style.background = "rgba(255,255,255,0.06)";
-      this.style.color      = "#e4e4e7";
-    });
-    item.addEventListener("mouseleave", function () {
-      this.style.background = "transparent";
-      this.style.color      = "#a1a1aa";
-    });
-    item.addEventListener("click", handleModelSelect);
-    dropdown.appendChild(item);
-  }
-}
-
-function toggleDropdown() {
-  var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
-  if (!dropdown) return;
-  var showing = dropdown.style.display === "none";
-  dropdown.style.display = showing ? "block" : "none";
-  if (showing) {
-    dropdown.style.animation = "none";
-    dropdown.offsetHeight;
-    dropdown.style.animation = "dupermem-in 0.12s ease-out";
-  }
-}
-
-// ─── Model selection → summarize → capture ────────────────────────────────────
-
-function handleModelSelect(e) {
-  var modelKey = e.currentTarget.dataset.modelKey;
-  var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
-  if (dropdown) dropdown.style.display = "none";
-
-  var btn = document.getElementById(DUPERMEM_BUTTON_ID);
-  setStatus(btn, "capturing");
-  if (DUPERMEM_STATUS_TIMEOUT) clearTimeout(DUPERMEM_STATUS_TIMEOUT);
-  DUPERMEM_STATUS_TIMEOUT = setTimeout(function () {
-    var b = document.getElementById(DUPERMEM_BUTTON_ID);
-    if (b && b.disabled) setStatus(b, "idle");
-  }, 120000);
-
-  try {
-    var transcript = captureConversationText();
-    if (!transcript || transcript.length < 20) {
-      setStatus(btn, "idle");
-      alert(
-        "DuperMemory: No conversation content found.\n\n" +
-        "Make sure you are on a conversation page with at least one message."
-      );
-      return;
-    }
-
-    var conversationId = DUPERMEM_CHAIN_CONV_ID || getConversationId();
-
-    chrome.runtime.sendMessage({
-      type:           "CAPTURE",
-      transcript:     transcript,
-      targetModel:    modelKey,
-      sourceModel:    DUPERMEM_SOURCE_MODEL,
-      conversationId: conversationId,
-    });
-
-  } catch (err) {
-    console.error("[DuperMemory]", err);
-    setStatus(btn, "idle");
-
-    if (err.message && err.message.indexOf("Extension context invalidated") !== -1) {
-      alert("DuperMemory: Extension was reloaded.\n\nPlease refresh this tab (F5) and try again.");
-    } else {
-      alert("DuperMemory: Capture failed.\n\n" + err.message);
-    }
-  }
-}
-
-var DUPERMEM_STATUS_TIMEOUT = null;
-
-function setStatus(btn, status, detail) {
-  if (!btn) return;
-  var icon = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>';
-  if (status === "idle") {
-    btn.disabled = false;
-    btn.innerHTML = icon + "Ask another AI";
-    btn.style.opacity = "1";
-    btn.style.cursor  = "pointer";
-    if (DUPERMEM_STATUS_TIMEOUT) { clearTimeout(DUPERMEM_STATUS_TIMEOUT); DUPERMEM_STATUS_TIMEOUT = null; }
-    return;
-  }
-  btn.disabled = true;
-  btn.style.cursor = "wait";
-  var labels = {
-    capturing: "Capturing\u2026",
-    opening:   "Opening " + (detail || "target") + "\u2026",
-    waiting:   "Waiting for response\u2026",
-    done:      "Done \u2713",
-  };
-  btn.innerHTML = icon + (labels[status] || status);
-  btn.style.opacity = status === "done" ? "1" : "0.7";
-  if (status === "done") {
-    if (DUPERMEM_STATUS_TIMEOUT) clearTimeout(DUPERMEM_STATUS_TIMEOUT);
-    DUPERMEM_STATUS_TIMEOUT = setTimeout(function () { setStatus(btn, "idle"); }, 2000);
-  }
-}
-
 // ─── Critique receiver ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(function (message) {
@@ -329,13 +95,6 @@ chrome.runtime.onMessage.addListener(function (message) {
     injectCritiqueFlow(message.content).catch(function (err) {
       console.error("[DuperMemory] Critique injection failed:", err.message);
     });
-  }
-  if (message.type === "STATUS_UPDATE") {
-    var btn = document.getElementById(DUPERMEM_BUTTON_ID);
-    setStatus(btn, message.status, message.detail);
-  }
-  if (message.type === "TOGGLE_DROPDOWN") {
-    toggleDropdown();
   }
 });
 
@@ -506,9 +265,161 @@ function waitForPerplexityResponse(scopeEl, snapshot) {
   });
 }
 
+// ─── Message capture ──────────────────────────────────────────────────────────
+//
+// Strategy: Perplexity renders query/answer pairs. User queries are in
+// elements with class patterns like "query" or inside the search input history.
+// Answers contain .markdown or prose wrappers and citation sections.
+// Fallback: alternating children in the answer thread container.
+
+function captureMessages() {
+  // ── Primary: query/answer pair containers ──────────────────────────────
+  var messages = tryPerplexityPairCapture();
+  if (messages.length > 0) return messages;
+
+  // ── Fallback 1: data-testid or class-based markers ─────────────────────
+  var turns = document.querySelectorAll(
+    '[data-testid*="message"], [data-testid*="query"], [data-testid*="answer"], ' +
+    '[class*="query-text"], [class*="answer-text"], ' +
+    '[class*="ThreadMessage"], [class*="thread-message"]'
+  );
+  if (turns.length > 0) {
+    return extractFromPerplexityTurns(turns);
+  }
+
+  // ── Fallback 2: alternating children of main ───────────────────────────
+  var main = document.querySelector("main") || document.querySelector('[role="main"]');
+  if (main) {
+    return extractFromAlternatingChildren(main);
+  }
+
+  return [];
+}
+
+function tryPerplexityPairCapture() {
+  var messages = [];
+
+  // Perplexity groups conversations into query-answer blocks
+  // Look for containers that hold the question text
+  var queryEls = document.querySelectorAll(
+    '[class*="query"], [class*="Question"], [class*="UserQuery"], ' +
+    '[class*="search-query"], [class*="question-text"]'
+  );
+  var answerEls = document.querySelectorAll(
+    '[class*="answer"], [class*="Answer"], [class*="response"], ' +
+    '[class*="prose"], [class*="markdown"]'
+  );
+
+  if (queryEls.length === 0 && answerEls.length === 0) return [];
+
+  // Collect all with roles and sort by DOM position
+  var all = [];
+  for (var i = 0; i < queryEls.length; i++) {
+    all.push({ el: queryEls[i], role: "user" });
+  }
+  for (var j = 0; j < answerEls.length; j++) {
+    // Skip if this answer element is inside a query element (nested markup)
+    var isNested = false;
+    for (var q = 0; q < queryEls.length; q++) {
+      if (queryEls[q].contains(answerEls[j])) { isNested = true; break; }
+    }
+    if (!isNested) {
+      all.push({ el: answerEls[j], role: "assistant" });
+    }
+  }
+
+  all.sort(function (a, b) {
+    var pos = a.el.compareDocumentPosition(b.el);
+    return (pos & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
+  });
+
+  for (var k = 0; k < all.length; k++) {
+    var content = extractCleanContent(all[k].el);
+    if (content) messages.push({ role: all[k].role, content: content });
+  }
+  return messages;
+}
+
+function extractFromPerplexityTurns(turns) {
+  var messages = [];
+  for (var i = 0; i < turns.length; i++) {
+    var el = turns[i];
+    var role = inferPerplexityRole(el);
+    if (!role) continue;
+    var content = extractCleanContent(el);
+    if (content) messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+function extractFromAlternatingChildren(main) {
+  var messages = [];
+  var children = main.children;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i].offsetHeight < 20) continue;
+    var content = extractCleanContent(children[i]);
+    if (!content) continue;
+    var role = inferPerplexityRole(children[i]);
+    if (!role) role = (messages.length % 2 === 0) ? "user" : "assistant";
+    messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+function inferPerplexityRole(el) {
+  var html = el.outerHTML.slice(0, 500).toLowerCase();
+  if (/\bquery\b/.test(html) || /\buser[-_]/.test(html) || /\bquestion\b/.test(html)) return "user";
+  if (/\banswer\b/.test(html) || /\bresponse\b/.test(html) || /\bprose\b/.test(html) || /\bmarkdown\b/.test(html)) return "assistant";
+
+  var ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
+  if (/user|query|question|you/.test(ariaLabel)) return "user";
+  if (/answer|response|perplexity|assistant/.test(ariaLabel)) return "assistant";
+
+  if (el.querySelector('.markdown, .prose, [class*="markdown"]')) return "assistant";
+
+  return null;
+}
+
+// ─── Clean content extraction ────────────────────────────────────────────────
+
+function extractCleanContent(el) {
+  var clone = el.cloneNode(true);
+
+  var junk = clone.querySelectorAll(
+    'button, [role="button"], svg, [aria-hidden="true"], ' +
+    '[class*="copy"], [class*="toolbar"], [class*="action"], [class*="avatar"], ' +
+    '[class*="icon"], [class*="citation"], [class*="source-badge"], ' +
+    '[class*="share"], [class*="feedback"], ' +
+    '[aria-label="Copy"], [aria-label="Share"]'
+  );
+  for (var i = 0; i < junk.length; i++) {
+    junk[i].remove();
+  }
+
+  var wrapper =
+    clone.querySelector(".markdown") ||
+    clone.querySelector(".prose") ||
+    clone.querySelector('[class*="markdown"]') ||
+    clone.querySelector('[class*="answer-text"]') ||
+    clone.querySelector('[class*="query-text"]') ||
+    clone;
+
+  var text = wrapper.textContent.trim();
+  text = text.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+/g, " ");
+  return text;
+}
+
 function captureConversationText() {
-  var scopeEl = document.querySelector("main") || document.body;
-  return scopeEl.innerText.trim();
+  var messages = captureMessages();
+  if (messages.length === 0) {
+    var scopeEl = document.querySelector("main") || document.body;
+    return scopeEl.innerText.trim();
+  }
+  return flattenInjectedContext(messages);
+}
+
+function formatMessagesAsTranscript(messages) {
+  return flattenInjectedContext(messages);
 }
 
 function extractResponse(beforeText, afterText) {

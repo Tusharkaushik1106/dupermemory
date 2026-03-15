@@ -18,9 +18,6 @@
 //   parseSummary(), delay()
 
 var DUPERMEM_SOURCE_MODEL = "chatgpt";
-var DUPERMEM_BUTTON_ID    = "dupermemory-ask-btn";
-var DUPERMEM_DROPDOWN_ID  = "dupermemory-dropdown";
-
 // When this tab was opened as a target by DuperMemory, store the chain's
 // conversation ID so that if the user later uses this tab as a source,
 // the memory stays linked across hops (AI #1 → AI #2 → AI #3).
@@ -141,248 +138,12 @@ function extractTargetResponse(beforeText, afterText) {
 // SOURCE FLOW — button + dropdown + self-summarization
 // ═══════════════════════════════════════════════════════════════════════════════
 
-injectButton();
-
 // ─── Conversation ID ──────────────────────────────────────────────────────────
 
 function getConversationId() {
   var match = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
   return "conv_" + Date.now();
-}
-
-// ─── Button + Dropdown ────────────────────────────────────────────────────────
-
-function injectButton() {
-  if (document.getElementById(DUPERMEM_BUTTON_ID)) return;
-
-  var styleTag = document.createElement("style");
-  styleTag.textContent =
-    "@keyframes dupermem-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}";
-  document.head.appendChild(styleTag);
-
-  var container = document.createElement("div");
-  container.id = DUPERMEM_BUTTON_ID + "-container";
-  Object.assign(container.style, {
-    position:      "fixed",
-    top:           "14px",
-    right:         "14px",
-    zIndex:        "2147483647",
-    display:       "flex",
-    flexDirection: "column",
-    alignItems:    "flex-end",
-    fontFamily:    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-  });
-
-  var btn = document.createElement("button");
-  btn.id = DUPERMEM_BUTTON_ID;
-  btn.innerHTML = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>Ask another AI';
-  Object.assign(btn.style, {
-    padding:              "6px 12px",
-    background:           "rgba(15, 15, 20, 0.82)",
-    color:                "#d4d4d8",
-    border:               "1px solid rgba(255,255,255,0.08)",
-    borderRadius:         "8px",
-    fontSize:             "12.5px",
-    fontWeight:           "500",
-    cursor:               "pointer",
-    boxShadow:            "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)",
-    lineHeight:           "1",
-    letterSpacing:        "0.01em",
-    transition:           "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-    backdropFilter:       "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-  });
-  btn.addEventListener("mouseenter", function () {
-    btn.style.background  = "rgba(28, 28, 38, 0.92)";
-    btn.style.borderColor = "rgba(255,255,255,0.14)";
-    btn.style.boxShadow   = "0 2px 8px rgba(0,0,0,0.3), 0 6px 16px rgba(0,0,0,0.15)";
-  });
-  btn.addEventListener("mouseleave", function () {
-    btn.style.background  = "rgba(15, 15, 20, 0.82)";
-    btn.style.borderColor = "rgba(255,255,255,0.08)";
-    btn.style.boxShadow   = "0 1px 4px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.12)";
-  });
-  btn.addEventListener("click", toggleDropdown);
-
-  var dropdown = document.createElement("div");
-  dropdown.id = DUPERMEM_DROPDOWN_ID;
-  Object.assign(dropdown.style, {
-    display:              "none",
-    marginTop:            "6px",
-    background:           "rgba(18, 18, 24, 0.92)",
-    border:               "1px solid rgba(255,255,255,0.07)",
-    borderRadius:         "10px",
-    boxShadow:            "0 8px 30px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.08)",
-    overflow:             "hidden",
-    minWidth:             "160px",
-    backdropFilter:       "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    padding:              "4px 0",
-  });
-
-  var label = document.createElement("div");
-  label.textContent = "DUPERMEMORY";
-  Object.assign(label.style, {
-    padding:       "7px 12px 3px",
-    fontSize:      "9.5px",
-    fontWeight:    "600",
-    color:         "#52525b",
-    letterSpacing: "0.06em",
-  });
-  dropdown.appendChild(label);
-
-  container.appendChild(btn);
-  container.appendChild(dropdown);
-  document.body.appendChild(container);
-
-  // Load models from background, excluding self.
-  chrome.runtime.sendMessage({ type: "GET_MODELS", sourceModel: DUPERMEM_SOURCE_MODEL }, function (response) {
-    if (chrome.runtime.lastError || !response || !response.models) {
-      console.warn("[DuperMemory] Could not load model list:", chrome.runtime.lastError);
-      return;
-    }
-    populateDropdown(dropdown, response.models);
-  });
-
-  document.addEventListener("click", function (e) {
-    if (!container.contains(e.target)) {
-      dropdown.style.display = "none";
-    }
-  });
-}
-
-function populateDropdown(dropdown, models) {
-  var dotColors = {
-    chatgpt: "#10a37f", claude: "#d97706", gemini: "#4285f4",
-    perplexity: "#20808d", deepseek: "#6366f1",
-  };
-  for (var i = 0; i < models.length; i++) {
-    var model = models[i];
-    var item = document.createElement("button");
-    var dc = dotColors[model.key] || "#888";
-    item.innerHTML =
-      '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' +
-      dc + ';margin-right:9px;flex-shrink:0"></span>' + model.name;
-    item.dataset.modelKey = model.key;
-    Object.assign(item.style, {
-      display:    "flex",
-      alignItems: "center",
-      width:      "100%",
-      padding:    "7px 12px",
-      background: "transparent",
-      color:      "#a1a1aa",
-      border:     "none",
-      fontSize:   "12.5px",
-      cursor:     "pointer",
-      textAlign:  "left",
-      fontFamily: "inherit",
-      lineHeight: "1",
-      transition: "background 0.1s, color 0.1s",
-    });
-    item.addEventListener("mouseenter", function () {
-      this.style.background = "rgba(255,255,255,0.06)";
-      this.style.color      = "#e4e4e7";
-    });
-    item.addEventListener("mouseleave", function () {
-      this.style.background = "transparent";
-      this.style.color      = "#a1a1aa";
-    });
-    item.addEventListener("click", handleModelSelect);
-    dropdown.appendChild(item);
-  }
-}
-
-function toggleDropdown() {
-  var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
-  if (!dropdown) return;
-  var showing = dropdown.style.display === "none";
-  dropdown.style.display = showing ? "block" : "none";
-  if (showing) {
-    dropdown.style.animation = "none";
-    dropdown.offsetHeight;
-    dropdown.style.animation = "dupermem-in 0.12s ease-out";
-  }
-}
-
-// ─── Model selection → summarize → capture ────────────────────────────────────
-
-function handleModelSelect(e) {
-  var modelKey = e.currentTarget.dataset.modelKey;
-  var dropdown = document.getElementById(DUPERMEM_DROPDOWN_ID);
-  if (dropdown) dropdown.style.display = "none";
-
-  var messages = captureMessages();
-  if (messages.length === 0) {
-    alert(
-      "DuperMemory: No messages found.\n\n" +
-      "Make sure you are on a ChatGPT conversation page with at least one message."
-    );
-    return;
-  }
-
-  var btn = document.getElementById(DUPERMEM_BUTTON_ID);
-  setStatus(btn, "capturing");
-  if (DUPERMEM_STATUS_TIMEOUT) clearTimeout(DUPERMEM_STATUS_TIMEOUT);
-  DUPERMEM_STATUS_TIMEOUT = setTimeout(function () {
-    var b = document.getElementById(DUPERMEM_BUTTON_ID);
-    if (b && b.disabled) setStatus(b, "idle");
-  }, 120000);
-
-  try {
-    var transcript = captureConversationText();
-    var conversationId = DUPERMEM_CHAIN_CONV_ID || getConversationId();
-
-    chrome.runtime.sendMessage({
-      type:           "CAPTURE",
-      transcript:     transcript,
-      targetModel:    modelKey,
-      sourceModel:    DUPERMEM_SOURCE_MODEL,
-      conversationId: conversationId,
-    });
-
-  } catch (err) {
-    console.error("[DuperMemory]", err);
-    setStatus(btn, "idle");
-
-    if (err.message && err.message.indexOf("Extension context invalidated") !== -1) {
-      alert(
-        "DuperMemory: Extension was reloaded.\n\n" +
-        "Please refresh this tab (F5) and try again."
-      );
-    } else {
-      alert("DuperMemory: Capture failed.\n\n" + err.message);
-    }
-  }
-}
-
-var DUPERMEM_STATUS_TIMEOUT = null;
-
-function setStatus(btn, status, detail) {
-  if (!btn) return;
-  var icon = '<span style="margin-right:6px;font-size:14px;vertical-align:-1px">&#x21C4;</span>';
-  if (status === "idle") {
-    btn.disabled = false;
-    btn.innerHTML = icon + "Ask another AI";
-    btn.style.opacity = "1";
-    btn.style.cursor  = "pointer";
-    if (DUPERMEM_STATUS_TIMEOUT) { clearTimeout(DUPERMEM_STATUS_TIMEOUT); DUPERMEM_STATUS_TIMEOUT = null; }
-    return;
-  }
-  btn.disabled = true;
-  btn.style.cursor = "wait";
-  var labels = {
-    capturing: "Capturing\u2026",
-    opening:   "Opening " + (detail || "target") + "\u2026",
-    waiting:   "Waiting for response\u2026",
-    done:      "Done \u2713",
-  };
-  btn.innerHTML = icon + (labels[status] || status);
-  btn.style.opacity = status === "done" ? "1" : "0.7";
-  if (status === "done") {
-    if (DUPERMEM_STATUS_TIMEOUT) clearTimeout(DUPERMEM_STATUS_TIMEOUT);
-    DUPERMEM_STATUS_TIMEOUT = setTimeout(function () { setStatus(btn, "idle"); }, 2000);
-  }
 }
 
 // ─── Critique receiver ────────────────────────────────────────────────────────
@@ -392,13 +153,6 @@ chrome.runtime.onMessage.addListener(function (message) {
     injectCritique(message.content).catch(function (err) {
       console.error("[DuperMemory] Critique injection failed:", err.message);
     });
-  }
-  if (message.type === "STATUS_UPDATE") {
-    var btn = document.getElementById(DUPERMEM_BUTTON_ID);
-    setStatus(btn, message.status, message.detail);
-  }
-  if (message.type === "TOGGLE_DROPDOWN") {
-    toggleDropdown();
   }
 });
 
@@ -518,40 +272,138 @@ function submitChatGPTInput() {
 }
 
 // ─── Message capture ──────────────────────────────────────────────────────────
+//
+// Strategy: ChatGPT marks every message with data-message-author-role on a
+// container element. When that attribute disappears, fall back to article
+// elements with data-testid="conversation-turn-*", which alternate user and
+// assistant. Content is extracted from .markdown / prose wrappers first, with
+// a clone-and-strip pass to remove buttons, SVGs, and ARIA-hidden elements.
 
 function captureMessages() {
-  var containers = document.querySelectorAll("[data-message-author-role]");
-  var messages = [];
-
-  for (var k = 0; k < containers.length; k++) {
-    var el   = containers[k];
-    var role = el.dataset.messageAuthorRole;
-    if (role !== "user" && role !== "assistant") continue;
-
-    var content = extractContent(el);
-    if (!content) continue;
-
-    messages.push({ role: role, content: content });
+  // ── Primary: data-message-author-role (most reliable) ──────────────────
+  var byRole = document.querySelectorAll("[data-message-author-role]");
+  if (byRole.length > 0) {
+    return extractFromRoleAttr(byRole);
   }
 
+  // ── Fallback 1: article[data-testid^="conversation-turn"] ──────────────
+  var turns = document.querySelectorAll('article[data-testid^="conversation-turn"]');
+  if (turns.length > 0) {
+    return extractFromTurnArticles(turns);
+  }
+
+  // ── Fallback 2: main > div alternating structure ───────────────────────
+  var main = document.querySelector("main");
+  if (main) {
+    var groups = main.querySelectorAll('[data-message-id]');
+    if (groups.length > 0) {
+      return extractFromMessageIds(groups);
+    }
+  }
+
+  return [];
+}
+
+function extractFromRoleAttr(nodes) {
+  var messages = [];
+  for (var i = 0; i < nodes.length; i++) {
+    var role = nodes[i].dataset.messageAuthorRole;
+    if (role !== "user" && role !== "assistant") continue;
+    var content = extractCleanContent(nodes[i]);
+    if (content) messages.push({ role: role, content: content });
+  }
   return messages;
 }
 
-function extractContent(messageEl) {
-  var clone = messageEl.cloneNode(true);
-  clone.querySelectorAll('button, [role="button"]').forEach(function (el) { el.remove(); });
-  clone.querySelectorAll('[aria-hidden="true"]').forEach(function (el) { el.remove(); });
-  return clone.innerText.trim();
+function extractFromTurnArticles(articles) {
+  var messages = [];
+  for (var i = 0; i < articles.length; i++) {
+    var testId = articles[i].dataset.testid || "";
+    // conversation-turn-0 = system/context, skip it
+    var turnMatch = testId.match(/conversation-turn-(\d+)/);
+    if (!turnMatch) continue;
+    var turnNum = parseInt(turnMatch[1], 10);
+    if (turnNum === 0) continue;
+
+    // Check for nested role attribute first
+    var nested = articles[i].querySelector("[data-message-author-role]");
+    var role;
+    if (nested) {
+      role = nested.dataset.messageAuthorRole;
+    } else {
+      // Odd turns = user, even turns = assistant (1-indexed after skipping 0)
+      role = (turnNum % 2 === 1) ? "user" : "assistant";
+    }
+    if (role !== "user" && role !== "assistant") continue;
+
+    var content = extractCleanContent(articles[i]);
+    if (content) messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+function extractFromMessageIds(nodes) {
+  var messages = [];
+  for (var i = 0; i < nodes.length; i++) {
+    // Infer role: user messages are typically shorter containers without
+    // .markdown wrappers; assistant messages contain .markdown or prose divs.
+    var hasMarkdown = nodes[i].querySelector(".markdown, .prose, [class*='markdown']");
+    var role = hasMarkdown ? "assistant" : "user";
+
+    // Override if the element or an ancestor has a role attribute
+    var roleAttr = nodes[i].querySelector("[data-message-author-role]");
+    if (roleAttr) {
+      role = roleAttr.dataset.messageAuthorRole === "user" ? "user" : "assistant";
+    }
+
+    var content = extractCleanContent(nodes[i]);
+    if (content) messages.push({ role: role, content: content });
+  }
+  return messages;
+}
+
+// ─── Clean content extraction ────────────────────────────────────────────────
+//
+// Clones the node, strips UI chrome (buttons, SVGs, toolbars, copy badges,
+// aria-hidden decorations), then reads text from the most specific content
+// wrapper available (.markdown, .prose, or the full clone).
+
+function extractCleanContent(el) {
+  var clone = el.cloneNode(true);
+
+  // Remove interactive UI elements
+  var junk = clone.querySelectorAll(
+    'button, [role="button"], svg, [aria-hidden="true"], ' +
+    '[class*="copy"], [class*="toolbar"], [class*="action"], ' +
+    '[data-testid*="copy"], [data-testid*="voice"], ' +
+    '[aria-label="Copy"], [aria-label="Read aloud"], [aria-label="Regenerate"]'
+  );
+  for (var i = 0; i < junk.length; i++) {
+    junk[i].remove();
+  }
+
+  // Prefer the narrowest content wrapper
+  var wrapper =
+    clone.querySelector(".markdown") ||
+    clone.querySelector(".prose") ||
+    clone.querySelector('[class*="markdown"]') ||
+    clone.querySelector('[class*="message-content"]') ||
+    clone;
+
+  var text = wrapper.textContent.trim();
+
+  // Collapse excessive whitespace but preserve paragraph breaks
+  text = text.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+/g, " ");
+
+  return text;
 }
 
 function captureConversationText() {
   var messages = captureMessages();
   if (messages.length === 0) return "";
+  return flattenInjectedContext(messages);
+}
 
-  var lines = [];
-  for (var i = 0; i < messages.length; i++) {
-    var label = messages[i].role === "user" ? "User" : "Assistant";
-    lines.push(label + ":\n" + messages[i].content);
-  }
-  return lines.join("\n\n");
+function formatMessagesAsTranscript(messages) {
+  return flattenInjectedContext(messages);
 }
