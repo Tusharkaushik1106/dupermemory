@@ -97,10 +97,42 @@ chrome.runtime.onMessage.addListener(function (message) {
 });
 
 async function injectCritiqueFlow(content) {
+  var lastAssistant = getLastAssistantText();
+  if (lastAssistant) {
+    var diffFragment = buildCritiqueDiffUI(lastAssistant, content);
+    if (diffFragment) { insertDiffPanel(diffFragment); }
+  }
+
   var inputEl = await waitForClaudeInput();
   injectText(inputEl, content);
   await delay(300);
   submitClaudeInput(inputEl);
+}
+
+function getLastAssistantText() {
+  var messages = captureMessages();
+  for (var i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant" && messages[i].content.length > 20) {
+      return messages[i].content;
+    }
+  }
+  return null;
+}
+
+function insertDiffPanel(fragment) {
+  var wrappers = document.querySelectorAll(
+    '[class*="font-claude"], [class*="assistant"], .prose, .markdown'
+  );
+  var target = wrappers.length > 0 ? wrappers[wrappers.length - 1] : null;
+  if (!target) {
+    var threadEl = document.querySelector('[class*="thread"], main');
+    if (threadEl && threadEl.lastElementChild) { target = threadEl.lastElementChild; }
+  }
+  if (target) {
+    target.parentNode.insertBefore(fragment, target.nextSibling);
+  } else {
+    (document.querySelector("main") || document.body).appendChild(fragment);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -436,8 +468,42 @@ function extractCleanContent(el) {
     clone.querySelector('[class*="response-content"]') ||
     clone;
 
-  var text = wrapper.textContent.trim();
-  text = text.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+/g, " ");
+  // Preserve code blocks: replace <pre>/<code> containers with Markdown fences
+  var codeBlocks = wrapper.querySelectorAll("pre");
+  for (var c = 0; c < codeBlocks.length; c++) {
+    var codeEl = codeBlocks[c].querySelector("code") || codeBlocks[c];
+    var lang = "";
+    var cls = codeEl.className || "";
+    var langMatch = cls.match(/(?:language|lang|hljs)-(\w+)/);
+    if (langMatch) lang = langMatch[1];
+    var codeText = codeEl.textContent;
+    var fenced = document.createTextNode(
+      "\n```" + lang + "\n" + codeText + "\n```\n"
+    );
+    codeBlocks[c].parentNode.replaceChild(fenced, codeBlocks[c]);
+  }
+
+  // Convert block-level elements to preserve line breaks
+  var blocks = wrapper.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, tr, blockquote");
+  for (var b = 0; b < blocks.length; b++) {
+    blocks[b].insertAdjacentText("afterend", "\n\n");
+  }
+  var brs = wrapper.querySelectorAll("br");
+  for (var r = 0; r < brs.length; r++) {
+    brs[r].parentNode.replaceChild(document.createTextNode("\n"), brs[r]);
+  }
+
+  // Read .innerText from a hidden container to respect visual line breaks
+  var hiddenDiv = document.createElement("div");
+  hiddenDiv.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:pre-wrap;max-width:800px;overflow:hidden;";
+  hiddenDiv.appendChild(wrapper);
+  document.body.appendChild(hiddenDiv);
+  var text = hiddenDiv.innerText;
+  document.body.removeChild(hiddenDiv);
+
+  text = (text || "").trim();
+  text = text.replace(/\n{3,}/g, "\n\n");
+
   return text;
 }
 

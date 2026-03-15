@@ -369,20 +369,34 @@ function sanitizeMetaPrompt(content) {
 // recursive boilerplate never reaches the target AI.
 
 function flattenInjectedContext(messages) {
+  // Massive chat safeguard: if more than 20 messages and total content
+  // is likely to exceed 80k chars, keep only first 10 + last 10 messages.
+  var msgs = messages;
+  if (msgs.length > 20) {
+    var totalChars = 0;
+    for (var c = 0; c < msgs.length; c++) {
+      totalChars += (msgs[c].content || "").length;
+    }
+    if (totalChars > 80000) {
+      var head = msgs.slice(0, 10);
+      var tail = msgs.slice(msgs.length - 10);
+      msgs = head.concat(
+        [{ role: "assistant", content: "[... " + (msgs.length - 20) + " messages truncated for length ...]" }],
+        tail
+      );
+    }
+  }
+
   var lines = [];
-  for (var i = 0; i < messages.length; i++) {
-    var msg = messages[i];
+  for (var i = 0; i < msgs.length; i++) {
+    var msg = msgs[i];
     var label = msg.role === "user" ? "User" : "Assistant";
 
     var result = flattenMetaPrompt(msg.content);
     if (result.flattened) {
-      // Splice the extracted historical transcript inline —
-      // this preserves the full conversation timeline from prior hops.
       if (result.history) {
         lines.push(result.history);
       }
-      // If the user appended their own text after the meta-prompt,
-      // include it as a separate user message.
       if (result.userExtra) {
         lines.push("User: " + result.userExtra);
       }

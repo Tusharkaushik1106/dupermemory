@@ -157,10 +157,55 @@ chrome.runtime.onMessage.addListener(function (message) {
 });
 
 async function injectCritique(content) {
+  // ── Code diff: compare original assistant code with critique code ──
+  var lastAssistant = getLastAssistantText();
+  if (lastAssistant) {
+    var diffFragment = buildCritiqueDiffUI(lastAssistant, content);
+    if (diffFragment) {
+      insertDiffPanel(diffFragment);
+    }
+  }
+
   var inputEl = await waitForChatGPTInput();
   injectTextIntoChatGPT(inputEl, content);
   await delay(300);
   submitChatGPTInput();
+}
+
+function getLastAssistantText() {
+  var messages = captureMessages();
+  for (var i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant" && messages[i].content.length > 20) {
+      return messages[i].content;
+    }
+  }
+  return null;
+}
+
+function insertDiffPanel(fragment) {
+  // Insert diff panel after the last assistant message in the DOM
+  var containers = document.querySelectorAll(
+    '[data-message-author-role="assistant"]'
+  );
+  var target = containers.length > 0
+    ? containers[containers.length - 1]
+    : null;
+
+  // Fallback: last article turn
+  if (!target) {
+    var articles = document.querySelectorAll(
+      'article[data-testid^="conversation-turn"]'
+    );
+    target = articles.length > 0 ? articles[articles.length - 1] : null;
+  }
+
+  if (target) {
+    target.parentNode.insertBefore(fragment, target.nextSibling);
+  } else {
+    // Last resort: append to main content area
+    var main = document.querySelector("main") || document.body;
+    main.appendChild(fragment);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -364,9 +409,9 @@ function extractFromMessageIds(nodes) {
 
 // ─── Clean content extraction ────────────────────────────────────────────────
 //
-// Clones the node, strips UI chrome (buttons, SVGs, toolbars, copy badges,
-// aria-hidden decorations), then reads text from the most specific content
-// wrapper available (.markdown, .prose, or the full clone).
+// Clones the node, strips UI chrome, preserves code blocks as Markdown fences,
+// converts block-level HTML to line breaks, and reads .innerText from a hidden
+// container to respect visual formatting the browser would render.
 
 function extractCleanContent(el) {
   var clone = el.cloneNode(true);
@@ -390,10 +435,41 @@ function extractCleanContent(el) {
     clone.querySelector('[class*="message-content"]') ||
     clone;
 
-  var text = wrapper.textContent.trim();
+  // Preserve code blocks: replace <pre>/<code> containers with Markdown fences
+  var codeBlocks = wrapper.querySelectorAll("pre");
+  for (var c = 0; c < codeBlocks.length; c++) {
+    var codeEl = codeBlocks[c].querySelector("code") || codeBlocks[c];
+    var lang = "";
+    var cls = codeEl.className || "";
+    var langMatch = cls.match(/(?:language|lang|hljs)-(\w+)/);
+    if (langMatch) lang = langMatch[1];
+    var codeText = codeEl.textContent;
+    var fenced = document.createTextNode(
+      "\n```" + lang + "\n" + codeText + "\n```\n"
+    );
+    codeBlocks[c].parentNode.replaceChild(fenced, codeBlocks[c]);
+  }
 
-  // Collapse excessive whitespace but preserve paragraph breaks
-  text = text.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+/g, " ");
+  // Convert block-level elements to preserve line breaks
+  var blocks = wrapper.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, tr, blockquote");
+  for (var b = 0; b < blocks.length; b++) {
+    blocks[b].insertAdjacentText("afterend", "\n\n");
+  }
+  var brs = wrapper.querySelectorAll("br");
+  for (var r = 0; r < brs.length; r++) {
+    brs[r].parentNode.replaceChild(document.createTextNode("\n"), brs[r]);
+  }
+
+  // Read .innerText from a hidden container to respect visual line breaks
+  var hiddenDiv = document.createElement("div");
+  hiddenDiv.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:pre-wrap;max-width:800px;overflow:hidden;";
+  hiddenDiv.appendChild(wrapper);
+  document.body.appendChild(hiddenDiv);
+  var text = hiddenDiv.innerText;
+  document.body.removeChild(hiddenDiv);
+
+  text = (text || "").trim();
+  text = text.replace(/\n{3,}/g, "\n\n");
 
   return text;
 }

@@ -28,6 +28,33 @@ importScripts("utils/replay-prompt.js");
 var pendingContext = {}; // targetTabId → { contextBlock, sourceTabId, conversationId }
 var pendingReview  = {}; // targetTabId → { sourceTabId, conversationId }
 
+// ─── Vault context (global user preferences) ────────────────────────────────
+
+var DM_VAULT_KEY = "dm_global_vault";
+
+function getVaultContext() {
+  return new Promise(function (resolve) {
+    chrome.storage.local.get(DM_VAULT_KEY, function (data) {
+      if (chrome.runtime.lastError) {
+        resolve("");
+        return;
+      }
+      resolve(data[DM_VAULT_KEY] || "");
+    });
+  });
+}
+
+function prependVaultBlock(contextBlock, vaultText) {
+  if (!vaultText || !vaultText.trim()) return contextBlock;
+  return (
+    "[GLOBAL USER PREFERENCES]\n" +
+    vaultText.trim() + "\n" +
+    "[END PREFERENCES]\n" +
+    "\n" +
+    contextBlock
+  );
+}
+
 // ─── Status updates to source tab ──────────────────────────────────────────
 
 function sendStatusUpdate(sourceTabId, status, detail) {
@@ -133,30 +160,15 @@ function handleCapture(transcript, targetModelKey, conversationId, sourceTabId) 
   // Use a stable conversation ID. If the source didn't provide one, generate one.
   var convId = conversationId || ("conv_" + Date.now());
 
-  // Read existing memory (may be populated from previous hops).
-  // Do NOT merge on capture — there is no structured summary to merge.
-  // Memory gets populated from the target's ---MEMORY--- response instead.
-  readMemory(convId).then(function (memory) {
+  // Read memory and vault context in parallel, then build the context block.
+  Promise.all([
+    readMemory(convId).catch(function () { return createEmptyMemory(convId); }),
+    getVaultContext(),
+  ]).then(function (results) {
+    var memory = results[0];
+    var vaultText = results[1];
     var contextBlock = formatContextBlockFromTranscript(memory, transcript);
-
-    chrome.tabs.create({ url: model.url }, function (tab) {
-      if (chrome.runtime.lastError) {
-        console.error("[DuperMemory] Failed to open " + model.name + " tab:", chrome.runtime.lastError.message);
-        sendStatusUpdate(sourceTabId, "idle");
-        return;
-      }
-      pendingContext[tab.id] = {
-        contextBlock:   contextBlock,
-        sourceTabId:    sourceTabId,
-        conversationId: convId,
-      };
-      sendStatusUpdate(sourceTabId, "opening", model.name);
-    });
-  }).catch(function (err) {
-    console.error("[DuperMemory] handleCapture memory read failed:", err);
-
-    // Fallback: format context without any memory.
-    var contextBlock = formatContextBlockFromTranscript(createEmptyMemory(convId), transcript);
+    contextBlock = prependVaultBlock(contextBlock, vaultText);
 
     chrome.tabs.create({ url: model.url }, function (tab) {
       if (chrome.runtime.lastError) {
@@ -193,20 +205,24 @@ function handleReplay(transcript, targetModelKey, conversationId, sourceTabId) {
   }
 
   var convId = conversationId || ("conv_" + Date.now());
-  var replayPrompt = buildReplayPrompt(transcript);
 
-  chrome.tabs.create({ url: model.url }, function (tab) {
-    if (chrome.runtime.lastError) {
-      console.error("[DuperMemory] Failed to open " + model.name + " tab:", chrome.runtime.lastError.message);
-      sendStatusUpdate(sourceTabId, "idle");
-      return;
-    }
-    pendingContext[tab.id] = {
-      contextBlock:   replayPrompt,
-      sourceTabId:    sourceTabId,
-      conversationId: convId,
-    };
-    sendStatusUpdate(sourceTabId, "opening", model.name);
+  getVaultContext().then(function (vaultText) {
+    var replayPrompt = buildReplayPrompt(transcript);
+    replayPrompt = prependVaultBlock(replayPrompt, vaultText);
+
+    chrome.tabs.create({ url: model.url }, function (tab) {
+      if (chrome.runtime.lastError) {
+        console.error("[DuperMemory] Failed to open " + model.name + " tab:", chrome.runtime.lastError.message);
+        sendStatusUpdate(sourceTabId, "idle");
+        return;
+      }
+      pendingContext[tab.id] = {
+        contextBlock:   replayPrompt,
+        sourceTabId:    sourceTabId,
+        conversationId: convId,
+      };
+      sendStatusUpdate(sourceTabId, "opening", model.name);
+    });
   });
 }
 

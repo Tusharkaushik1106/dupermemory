@@ -230,6 +230,114 @@ if (typeof DUPERMEM_CHAIN_CONV_ID === "undefined") {
     "  border-radius: 50%;",
     "  flex-shrink: 0;",
     "}",
+
+    // ── Export footer ──
+    ".dm-popover-footer {",
+    "  border-top: 1px solid rgba(255,255,255,0.06);",
+    "  padding: 8px 12px 10px;",
+    "}",
+    ".dm-export-btn {",
+    "  display: flex;",
+    "  align-items: center;",
+    "  justify-content: center;",
+    "  gap: 6px;",
+    "  width: 100%;",
+    "  padding: 8px 0;",
+    "  border-radius: 8px;",
+    "  border: 1px solid rgba(255,255,255,0.06);",
+    "  background: rgba(255,255,255,0.03);",
+    "  color: #a1a1aa;",
+    "  font-size: 12px;",
+    "  font-weight: 500;",
+    "  cursor: pointer;",
+    "  transition: background 0.12s, color 0.12s, border-color 0.12s;",
+    "}",
+    ".dm-export-btn:hover {",
+    "  background: rgba(255,255,255,0.07);",
+    "  color: #e4e4e7;",
+    "  border-color: rgba(255,255,255,0.12);",
+    "}",
+    ".dm-export-btn:disabled {",
+    "  cursor: default;",
+    "  opacity: 0.7;",
+    "}",
+
+    // ── Vault panel ──
+    ".dm-vault {",
+    "  padding: 10px 12px 14px;",
+    "}",
+    ".dm-vault--hidden { display: none; }",
+    ".dm-vault-textarea {",
+    "  display: block;",
+    "  width: 100%;",
+    "  min-height: 90px;",
+    "  max-height: 160px;",
+    "  padding: 10px;",
+    "  border-radius: 8px;",
+    "  border: 1px solid rgba(255,255,255,0.08);",
+    "  background: rgba(255,255,255,0.03);",
+    "  color: #d4d4d8;",
+    "  font-size: 12px;",
+    "  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;",
+    "  line-height: 1.5;",
+    "  resize: vertical;",
+    "  outline: none;",
+    "  transition: border-color 0.15s;",
+    "}",
+    ".dm-vault-textarea::placeholder {",
+    "  color: #52525b;",
+    "}",
+    ".dm-vault-textarea:focus {",
+    "  border-color: rgba(167, 139, 250, 0.4);",
+    "}",
+    ".dm-vault-save {",
+    "  display: block;",
+    "  width: 100%;",
+    "  margin-top: 8px;",
+    "  padding: 8px 0;",
+    "  border-radius: 8px;",
+    "  border: 1px solid rgba(255,255,255,0.06);",
+    "  background: rgba(139, 92, 246, 0.12);",
+    "  color: #c4b5fd;",
+    "  font-size: 12px;",
+    "  font-weight: 600;",
+    "  cursor: pointer;",
+    "  transition: background 0.12s, color 0.12s;",
+    "}",
+    ".dm-vault-save:hover {",
+    "  background: rgba(139, 92, 246, 0.2);",
+    "  color: #ddd6fe;",
+    "}",
+    ".dm-vault-save:disabled {",
+    "  cursor: default;",
+    "  opacity: 0.7;",
+    "}",
+
+    // ── Toast ──
+    ".dm-toast {",
+    "  position: fixed;",
+    "  bottom: 80px;",
+    "  right: 24px;",
+    "  padding: 10px 18px;",
+    "  border-radius: 10px;",
+    "  background: rgba(15, 15, 22, 0.9);",
+    "  color: #e4e4e7;",
+    "  font-size: 13px;",
+    "  font-weight: 500;",
+    "  backdrop-filter: blur(12px);",
+    "  -webkit-backdrop-filter: blur(12px);",
+    "  box-shadow: 0 4px 16px rgba(0,0,0,0.3);",
+    "  border: 1px solid rgba(255,255,255,0.08);",
+    "  opacity: 0;",
+    "  transform: translateY(8px);",
+    "  transition: opacity 0.2s, transform 0.2s;",
+    "  z-index: 2147483647;",
+    "  pointer-events: none;",
+    "}",
+    ".dm-toast--visible {",
+    "  opacity: 1;",
+    "  transform: translateY(0);",
+    "}",
   ].join("\n");
 
   var style = document.createElement("style");
@@ -249,6 +357,60 @@ var DM_DOT_COLORS = {
   perplexity: "#20808d",
   deepseek:   "#6366f1",
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UI STATE LOCK — prevents double-clicks and duplicate actions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var DM_UI_LOCKED = false;
+
+function dmLockUI() {
+  DM_UI_LOCKED = true;
+  var popover = document.getElementById(DUPERMEM_DROPDOWN_ID);
+  if (!popover) return;
+  var buttons = popover.querySelectorAll(".dm-pill, .dm-export-btn");
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].disabled = true;
+    buttons[i].style.opacity = "0.5";
+    buttons[i].style.pointerEvents = "none";
+  }
+}
+
+function dmUnlockUI() {
+  DM_UI_LOCKED = false;
+  var popover = document.getElementById(DUPERMEM_DROPDOWN_ID);
+  if (!popover) return;
+  var buttons = popover.querySelectorAll(".dm-pill, .dm-export-btn");
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].disabled = false;
+    buttons[i].style.opacity = "";
+    buttons[i].style.pointerEvents = "";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOAST NOTIFICATION — non-blocking feedback for empty state and errors
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function dmShowToast(text, durationMs) {
+  var existing = document.getElementById("dm-toast");
+  if (existing) existing.remove();
+
+  var toast = document.createElement("div");
+  toast.id = "dm-toast";
+  toast.classList.add("dm-widget", "dm-toast");
+  toast.textContent = text;
+  document.body.appendChild(toast);
+
+  // Trigger reflow then add visible class for transition
+  toast.offsetHeight;
+  toast.classList.add("dm-toast--visible");
+
+  setTimeout(function () {
+    toast.classList.remove("dm-toast--visible");
+    setTimeout(function () { if (toast.parentNode) toast.remove(); }, 200);
+  }, durationMs || 3000);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STATUS MANAGER
@@ -272,6 +434,7 @@ function dmSetStatus(status, detail) {
     if (labelEl) labelEl.textContent = "DuperMemory";
     if (spinEl)  spinEl.style.display = "none";
     if (DM_STATUS_TIMEOUT) { clearTimeout(DM_STATUS_TIMEOUT); DM_STATUS_TIMEOUT = null; }
+    dmUnlockUI();
     return;
   }
 
@@ -413,12 +576,25 @@ function dmSwitchTab(tabId) {
     }
   }
 
+  // Toggle grid panels (ask / replay)
   var grids = popover.querySelectorAll(".dm-grid");
   for (var g = 0; g < grids.length; g++) {
     if (grids[g].dataset.tab === tabId) {
       grids[g].classList.remove("dm-grid--hidden");
     } else {
       grids[g].classList.add("dm-grid--hidden");
+    }
+  }
+
+  // Toggle vault panel
+  var vault = popover.querySelector(".dm-vault");
+  if (vault) {
+    if (tabId === "vault") {
+      vault.classList.remove("dm-vault--hidden");
+      // Load saved vault text
+      dmLoadVaultText();
+    } else {
+      vault.classList.add("dm-vault--hidden");
     }
   }
 }
@@ -428,11 +604,13 @@ function dmSwitchTab(tabId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function handleModelSelect(e) {
+  if (DM_UI_LOCKED) return;
   var modelKey = e.currentTarget.dataset.modelKey;
 
-  // Close popover
+  // Close popover + lock UI
   var popover = document.getElementById(DUPERMEM_DROPDOWN_ID);
   if (popover) popover.classList.remove("dm-popover--open");
+  dmLockUI();
 
   dmSetStatus("capturing");
   if (DM_STATUS_TIMEOUT) clearTimeout(DM_STATUS_TIMEOUT);
@@ -444,10 +622,7 @@ function handleModelSelect(e) {
     var transcript = captureConversationText();
     if (!transcript || transcript.length < 20) {
       dmSetStatus("idle");
-      alert(
-        "DuperMemory: No conversation content found.\n\n" +
-        "Make sure you are on a conversation page with at least one message."
-      );
+      dmShowToast("No conversation found", 3000);
       return;
     }
 
@@ -466,26 +641,26 @@ function handleModelSelect(e) {
     dmSetStatus("idle");
 
     if (err.message && err.message.indexOf("Extension context invalidated") !== -1) {
-      alert("DuperMemory: Extension was reloaded.\n\nPlease refresh this tab (F5) and try again.");
+      dmShowToast("Extension reloaded -- please refresh this tab", 4000);
     } else {
-      alert("DuperMemory: Capture failed.\n\n" + err.message);
+      dmShowToast("Capture failed: " + err.message, 4000);
     }
   }
 }
 
 function handleReplaySelect(e) {
+  if (DM_UI_LOCKED) return;
   var modelKey = e.currentTarget.dataset.modelKey;
 
-  // Close popover
+  // Close popover + lock UI
   var popover = document.getElementById(DUPERMEM_DROPDOWN_ID);
   if (popover) popover.classList.remove("dm-popover--open");
+  dmLockUI();
 
   var messages = captureMessages();
   if (messages.length === 0) {
-    alert(
-      "DuperMemory: No messages found.\n\n" +
-      "Make sure you are on a conversation page with at least one message."
-    );
+    dmUnlockUI();
+    dmShowToast("No conversation found", 3000);
     return;
   }
 
@@ -505,6 +680,133 @@ function handleReplaySelect(e) {
     sourceModel:    DUPERMEM_SOURCE_MODEL,
     conversationId: conversationId,
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VAULT HANDLERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var DM_VAULT_KEY = "dm_global_vault";
+
+function dmLoadVaultText() {
+  var textarea = document.getElementById("dm-vault-textarea");
+  if (!textarea) return;
+  chrome.storage.local.get(DM_VAULT_KEY, function (data) {
+    if (chrome.runtime.lastError) return;
+    textarea.value = data[DM_VAULT_KEY] || "";
+  });
+}
+
+function dmSaveVault() {
+  var textarea = document.getElementById("dm-vault-textarea");
+  var saveBtn = document.getElementById("dm-vault-save");
+  if (!textarea) return;
+
+  var obj = {};
+  obj[DM_VAULT_KEY] = textarea.value;
+  chrome.storage.local.set(obj, function () {
+    if (chrome.runtime.lastError) {
+      console.error("[DuperMemory] Vault save failed:", chrome.runtime.lastError.message);
+      return;
+    }
+    if (saveBtn) {
+      saveBtn.textContent = "Saved";
+      saveBtn.disabled = true;
+      setTimeout(function () {
+        saveBtn.textContent = "Save Preferences";
+        saveBtn.disabled = false;
+      }, 2000);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPORT HANDLER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function handleExportThread() {
+  if (DM_UI_LOCKED) return;
+  var exportBtn = document.getElementById("dm-export-btn");
+
+  var messages = captureMessages();
+  if (messages.length === 0) {
+    dmShowToast("No messages found", 3000);
+    return;
+  }
+
+  // Close popover
+  var popover = document.getElementById(DUPERMEM_DROPDOWN_ID);
+  if (popover) popover.classList.remove("dm-popover--open");
+
+  // Visual feedback: Exporting...
+  if (exportBtn) {
+    exportBtn.textContent = "Exporting\u2026";
+    exportBtn.disabled = true;
+  }
+
+  // Flatten to remove any DuperMemory meta-prompt boilerplate
+  var transcript = flattenInjectedContext(messages);
+
+  // Re-parse the flattened transcript back into a messages array for Markdown
+  // generation. flattenInjectedContext returns a string, so we split it back.
+  var cleanMessages = parseTranscriptToMessages(transcript);
+  if (cleanMessages.length === 0) {
+    // Fallback: use the raw captured messages
+    cleanMessages = messages;
+  }
+
+  var markdown = generateMarkdown(cleanMessages);
+
+  // Try to derive a topic from the first user message
+  var topic = "";
+  for (var i = 0; i < cleanMessages.length; i++) {
+    if (cleanMessages[i].role === "user" && cleanMessages[i].content.length > 5) {
+      topic = cleanMessages[i].content.substring(0, 60);
+      break;
+    }
+  }
+
+  downloadMarkdownFile(markdown, topic);
+
+  // Visual feedback: Export Complete
+  if (exportBtn) {
+    exportBtn.textContent = "Export Complete";
+    setTimeout(function () {
+      exportBtn.textContent = "Export Thread (.md)";
+      exportBtn.disabled = false;
+    }, 2000);
+  }
+}
+
+// Re-parses a flattened transcript string ("User: ...\n\nAssistant: ...")
+// back into a [{role, content}] array for generateMarkdown.
+function parseTranscriptToMessages(transcript) {
+  var result = [];
+  // Split on lines that start with "User: " or "Assistant: "
+  var parts = transcript.split(/\n\n(?=(?:User|Assistant): )/);
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i].trim();
+    if (!part) continue;
+
+    var role, content;
+    if (part.indexOf("User: ") === 0) {
+      role = "user";
+      content = part.substring(6);
+    } else if (part.indexOf("Assistant: ") === 0) {
+      role = "assistant";
+      content = part.substring(11);
+    } else {
+      // No label — treat as continuation of previous or assistant
+      if (result.length > 0) {
+        result[result.length - 1].content += "\n\n" + part;
+        continue;
+      }
+      role = "assistant";
+      content = part;
+    }
+    result.push({ role: role, content: content });
+  }
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -578,7 +880,14 @@ function injectButton() {
   tabReplay.addEventListener("click", function () { dmSwitchTab("replay"); });
 
   tabBar.appendChild(tabAsk);
+  var tabVault = document.createElement("button");
+  tabVault.classList.add("dm-widget", "dm-tab");
+  tabVault.dataset.tab = "vault";
+  tabVault.textContent = "Vault";
+  tabVault.addEventListener("click", function () { dmSwitchTab("vault"); });
+
   tabBar.appendChild(tabReplay);
+  tabBar.appendChild(tabVault);
   popover.appendChild(tabBar);
 
   // Grids (filled after model list loads)
@@ -591,6 +900,39 @@ function injectButton() {
   gridReplay.classList.add("dm-widget", "dm-grid", "dm-grid--hidden");
   gridReplay.dataset.tab = "replay";
   popover.appendChild(gridReplay);
+
+  // Vault panel
+  var vaultPanel = document.createElement("div");
+  vaultPanel.classList.add("dm-widget", "dm-vault", "dm-vault--hidden");
+
+  var vaultTextarea = document.createElement("textarea");
+  vaultTextarea.id = "dm-vault-textarea";
+  vaultTextarea.classList.add("dm-widget", "dm-vault-textarea");
+  vaultTextarea.placeholder = "Enter global instructions (e.g., 'Always use TypeScript', 'No boilerplate code')...";
+  vaultTextarea.spellcheck = false;
+
+  var vaultSave = document.createElement("button");
+  vaultSave.id = "dm-vault-save";
+  vaultSave.classList.add("dm-widget", "dm-vault-save");
+  vaultSave.textContent = "Save Preferences";
+  vaultSave.addEventListener("click", dmSaveVault);
+
+  vaultPanel.appendChild(vaultTextarea);
+  vaultPanel.appendChild(vaultSave);
+  popover.appendChild(vaultPanel);
+
+  // Export footer
+  var footer = document.createElement("div");
+  footer.classList.add("dm-widget", "dm-popover-footer");
+
+  var exportBtn = document.createElement("button");
+  exportBtn.id = "dm-export-btn";
+  exportBtn.classList.add("dm-widget", "dm-export-btn");
+  exportBtn.textContent = "Export Thread (.md)";
+  exportBtn.addEventListener("click", handleExportThread);
+
+  footer.appendChild(exportBtn);
+  popover.appendChild(footer);
 
   // ── Assemble ──
   root.appendChild(popover);

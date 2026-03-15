@@ -7,7 +7,7 @@ DuperMemory is a Chrome extension that lets you take a conversation from one AI 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-34A853)
 ![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-brightgreen)
-![Version](https://img.shields.io/badge/Version-0.4.0-blue)
+![Version](https://img.shields.io/badge/Version-0.5.0-blue)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
@@ -38,13 +38,20 @@ Every AI can talk to every other AI. 20 possible routes.
 
 ## Features
 
-- **One-click cross-AI routing** — button appears on every supported AI site
+- **One-click cross-AI routing** — draggable FAB appears on every supported AI site
 - **Bidirectional** — every AI is both a source and a target
+- **Tabbed UI** — glassmorphism popover with Ask AI, Replay, and Vault tabs
+- **Replay mode** — send a raw transcript to another AI for critical evaluation
+- **Context Vault** — global system instructions (e.g., "Always use TypeScript") prepended to every transfer
+- **Code diff engine** — visual line-level diffs when a critique modifies code blocks
+- **Markdown export** — one-click export of any conversation as a clean `.md` file with preserved formatting and code fences
+- **Context flattener** — strips recursive meta-prompt nesting from chained transfers (AI #1 → #2 → #3)
 - **Context menu** — right-click selected text and send it to any AI
 - **Keyboard shortcut** — `Ctrl+Shift+D` toggles the dropdown
 - **Memory system** — stores conversation context (topics, entities, decisions) in local storage
 - **Popup dashboard** — view and manage stored memories per conversation
-- **Status feedback** — button shows real-time progress: Capturing → Opening → Waiting → Done
+- **Status feedback** — FAB morphs into a loading pill with spinner: Capturing → Opening → Waiting → Done
+- **Production safeguards** — UI state lock prevents double-clicks, toast notifications, massive chat truncation (80k+ chars)
 
 ## Installation
 
@@ -86,21 +93,25 @@ The background service worker routes messages between tabs and manages memory.
 
 ```
 manifest.json          Extension config (MV3)
-background.js          Service worker — message routing, memory, context menus
+background.js          Service worker — message routing, memory, vault, context menus
 popup.html / popup.js  Dashboard for viewing stored memories
 
 content/
-  chatgpt.js           ChatGPT content script
-  claude.js            Claude content script
-  gemini.js            Gemini content script
-  perplexity.js        Perplexity content script
-  deepseek.js          DeepSeek content script
+  chatgpt.js           ChatGPT content script (source + target)
+  claude.js            Claude content script (source + target)
+  gemini.js            Gemini content script (source + target)
+  perplexity.js        Perplexity content script (source + target)
+  deepseek.js          DeepSeek content script (source + target)
 
 utils/
   models.js            Model registry and lookups
-  format.js            Context block formatting
+  format.js            Context block formatting (sandwich pattern)
   memory.js            Storage read/write/merge/evict
-  summarize-generic.js Response parsing and summary extraction
+  summarize-generic.js Parsing, context flattening, meta-prompt stripping
+  ui-inject.js         Shared UI — draggable FAB, tabbed popover, status, vault, export
+  diff-engine.js       LCS-based code diff engine with inline HTML rendering
+  export-engine.js     Markdown export with code fence preservation
+  replay-prompt.js     Replay meta-prompt builder
 ```
 
 ## Tech
