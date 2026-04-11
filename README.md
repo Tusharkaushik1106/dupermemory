@@ -57,7 +57,7 @@ Every AI can talk to every other AI. 20 possible routes.
 
 ### From GitHub Release
 
-1. Download `dupermemory.zip` from the [latest release](../../releases/latest)
+1. Download `dupermemory-release.zip` from the [latest release](../../releases/latest)
 2. Extract the zip
 3. Open `chrome://extensions` in Chrome
 4. Enable **Developer mode** (top right)
